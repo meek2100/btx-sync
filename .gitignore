@@ -39,3 +39,4 @@ desktop.ini # Windows
 
 # Local environment config
 config.json
+.coverage
