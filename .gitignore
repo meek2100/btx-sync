@@ -17,6 +17,8 @@ data/
 
 # Logs
 .coverage
+*.coverage
+.coverage.*
 *.log
 logs/
 
@@ -39,4 +41,3 @@ desktop.ini # Windows
 
 # Local environment config
 config.json
-.coverage
