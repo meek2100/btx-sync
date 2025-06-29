@@ -179,12 +179,14 @@ def sync_logic_main(config, log_callback):
 
     def create_or_update_transifex_resource(slug, name):
         resource_id = f"o:{transifex_org_slug}:p:{transifex_project_slug}:r:{slug}"
-        url = f"https://rest.api.transifex.com/api/v3/resources/{resource_id}"
+        # FIX: Using the non-versioned endpoint
+        url = f"https://rest.api.transifex.com/resources/{resource_id}"
         logger.debug(f"Checking for resource at URL: {url}")
         response = requests.get(url, headers=transifex_headers)
         if response.status_code == 404:
             logger.info(f"  > Resource '{slug}' not found. Creating...")
-            create_url = "https://rest.api.transifex.com/api/v3/resources"
+            # FIX: Using the non-versioned endpoint
+            create_url = "https://rest.api.transifex.com/resources"
             payload = {
                 "data": {
                     "type": "resources",
@@ -238,7 +240,8 @@ def sync_logic_main(config, log_callback):
         logger.info(
             f"  > Preparing to upload {len(content_dict)} string(s) to resource '{resource_slug}'..."
         )
-        url = "https://rest.api.transifex.com/api/v3/resource_strings_async_uploads"
+        # FIX: Using the non-versioned endpoint
+        url = "https://rest.api.transifex.com/resource_strings_async_uploads"
         payload = {
             "data": {
                 "type": "resource_strings_async_uploads",
