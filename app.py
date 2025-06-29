@@ -20,6 +20,7 @@ class App(customtkinter.CTk):
 
         self.title("Braze-Transifex Sync Tool")
         self.geometry("800x600")
+        self.iconbitmap("assets/icon.ico")
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
