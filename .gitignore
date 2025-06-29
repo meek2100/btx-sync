@@ -1,44 +1,36 @@
-# Python virtual environments
+# Python virtual environment
 .venv/
 venv/
 env/
 
-# Byte-code files
-__pycache__/
+# Python cache and bytecode files
+pycache/
 *.pyc
-*.pyd
 *.pyo
+*.pyd
 
-# pytest cache directory
+# Testing artifacts
 .pytest_cache/
-
-# Data directories for Minecraft servers (volumes)
-data/
-
-# Logs
 .coverage
-*.coverage
-.coverage.*
-*.log
-logs/
+coverage.xml
+htmlcov/
 
-# Optional Additions for Future-Proofing a Python project
-*.egg-info/
+# PyInstaller build artifacts
 build/
 dist/
+*.spec
 
-# IDE-specific files (common for VS Code, PyCharm, etc.)
-.vscode/
-.idea/
-
-# Operating System Files
-.DS_Store # macOS
-Thumbs.db # Windows
-desktop.ini # Windows
-
-# Docker environment variables file (if you create one for local env)
-.env
-
-# Local environment config
+# Local configuration files
+# This file contains user-specific paths and should not be committed.
 config.json
-BrazeTransifexSync.spec
+
+# IDE / Editor specific files
+# We ignore the whole .vscode folder but force-add the files
+# that should be shared for a consistent development experience.
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+
+# OS-generated files
+.DS_Store
+Thumbs.db

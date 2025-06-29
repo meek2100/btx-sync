@@ -1,0 +1,22 @@
+{
+    // Scoped settings for Python files to ensure consistency.
+    "[python]": {
+        // Set Ruff as the default formatter for Python files.
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        // Automatically format the file whenever you save it.
+        "editor.formatOnSave": true,
+        // Optional but recommended: Also run Ruff's automatic linter fixes on save.
+        "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit"
+        }
+    },
+    // Tells VS Code which Python interpreter to use for this project.
+    // This points to the virtual environment, ensuring consistency.
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+    // Configures the Python Test Explorer to use pytest.
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
+}
