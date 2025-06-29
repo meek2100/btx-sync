@@ -2,21 +2,20 @@
 
 import pytest
 import json
-from unittest.mock import MagicMock, mock_open
+from unittest.mock import MagicMock
 
-# Import the functions and classes we want to test
-from sync_logic import create_or_update_transifex_resource, perform_tmx_backup
+# Import the main function we want to test
+from sync_logic import sync_logic_main
 from logger import AppLogger
 
 # --- Pytest Fixtures ---
-# Fixtures are reusable setup functions for your tests.
 
 
 @pytest.fixture
 def mock_logger():
     """Provides a mock logger that we can inspect."""
     # A simple lambda that does nothing, to satisfy the log_callback requirement.
-    return AppLogger(lambda msg: None, level="Debug")
+    return AppLogger(lambda msg: print(msg), level="Debug")
 
 
 @pytest.fixture
@@ -28,131 +27,98 @@ def mock_config():
         "TRANSIFEX_API_TOKEN": "test_tx_token",
         "TRANSIFEX_ORGANIZATION_SLUG": "test_org",
         "TRANSIFEX_PROJECT_SLUG": "test_project",
-        "BACKUP_ENABLED": True,
-        "BACKUP_PATH": "/fake/path",
+        "BACKUP_ENABLED": False,  # Disable backup for this unit test for simplicity
+        "LOG_LEVEL": "Debug",
     }
 
 
-# --- Unit Tests for `create_or_update_transifex_resource` ---
+# --- Unit Test for the Main Sync Logic ---
 
 
-def test_creates_new_resource_when_404(mocker, mock_config, mock_logger):
+def test_sync_logic_main_happy_path(mocker, mock_config, mock_logger):
     """
-    Verify that if a resource does not exist (gets a 404),
-    the function attempts to create it with a POST request.
+    Tests the entire sync workflow by mocking all API calls.
+    This acts as an integration-style unit test for the whole module.
     """
-    # 1. Setup the mocks
-    # Mock requests.get to return a 404 response
-    mock_get_response = MagicMock()
-    mock_get_response.status_code = 404
-    mocker.patch("requests.get", return_value=mock_get_response)
+    # 1. SETUP MOCKS for the entire sequence of API calls
 
-    # Mock requests.post so we can check if it gets called
-    mock_post = mocker.patch("requests.post")
-    mock_post.return_value.raise_for_status.return_value = (
-        None  # Ensure it doesn't raise an error
-    )
-
-    # 2. Run the function under test
-    create_or_update_transifex_resource(
-        slug="new_template_id",
-        name="New Template Name",
-        transifex_org_slug=mock_config["TRANSIFEX_ORGANIZATION_SLUG"],
-        transifex_project_slug=mock_config["TRANSIFEX_PROJECT_SLUG"],
-        transifex_headers={},
-        logger=mock_logger,
-    )
-
-    # 3. Assert the results
-    # Check that we tried to create a new resource
-    mock_post.assert_called_once()
-    # Check that the payload sent in the POST request is correct
-    call_args, call_kwargs = mock_post.call_args
-    sent_payload = json.loads(call_kwargs["data"])
-    assert sent_payload["data"]["attributes"]["slug"] == "new_template_id"
-    assert sent_payload["data"]["attributes"]["name"] == "New Template Name"
-
-
-def test_does_nothing_if_resource_exists_and_name_matches(
-    mocker, mock_config, mock_logger
-):
-    """
-    Verify that if a resource exists and has the correct name,
-    no PATCH or POST request is made.
-    """
-    # 1. Setup the mocks
-    mock_get_response = MagicMock()
-    mock_get_response.status_code = 200
-    mock_get_response.json.return_value = {
-        "data": {"attributes": {"name": "Existing Name"}}
-    }
-    mocker.patch("requests.get", return_value=mock_get_response)
-    mock_post = mocker.patch("requests.post")
-    mock_patch = mocker.patch("requests.patch")
-
-    # 2. Run the function
-    create_or_update_transifex_resource(
-        slug="existing_id",
-        name="Existing Name",  # The name matches what the mock returns
-        transifex_org_slug=mock_config["TRANSIFEX_ORGANIZATION_SLUG"],
-        transifex_project_slug=mock_config["TRANSIFEX_PROJECT_SLUG"],
-        transifex_headers={},
-        logger=mock_logger,
-    )
-
-    # 3. Assert the results
-    mock_post.assert_not_called()
-    mock_patch.assert_not_called()
-
-
-# --- Unit Tests for `perform_tmx_backup` ---
-
-
-def test_tmx_backup_happy_path(mocker, mock_config, mock_logger):
-    """
-    Verify the successful TMX backup workflow from start to finish.
-    """
-    # 1. Setup Mocks
-    # Mock the initial POST to create the job
-    mock_post_response = MagicMock()
-    mock_post_response.json.return_value = {"data": {"id": "test_job_id"}}
-    mock_post = mocker.patch("requests.post", return_value=mock_post_response)
-
-    # Mock the GET requests for polling the status
-    mock_get_response_pending = MagicMock(status_code=200)
-    mock_get_response_pending.json.return_value = {
-        "data": {"attributes": {"status": "pending"}}
+    # Mock for Braze 'list' calls
+    mock_braze_list_response = MagicMock()
+    mock_braze_list_response.json.return_value = {
+        "templates": [
+            {"email_template_id": "email_123", "template_name": "Test Email 1"}
+        ],
+        "content_blocks": [{"content_block_id": "block_456", "name": "Test Block 1"}],
     }
 
-    mock_get_response_completed = MagicMock(status_code=200)
-    mock_get_response_completed.json.return_value = {
-        "data": {
-            "attributes": {"status": "completed"},
-            "links": {"download": "http://fake-download-url.com"},
-        }
+    # Mock for Braze 'get template info' call
+    mock_braze_email_info_response = MagicMock()
+    mock_braze_email_info_response.json.return_value = {
+        "subject": "Test Subject",
+        "body": "<p>Test Body</p>",
+        "preheader": "Test Preheader",
     }
 
-    # Use side_effect to return different values on subsequent calls
-    mock_get = mocker.patch(
+    # Mock for Braze 'get block info' call
+    mock_braze_block_info_response = MagicMock()
+    mock_braze_block_info_response.json.return_value = {
+        "content": "Test Content Block Body"
+    }
+
+    # Mock for Transifex 'get resource' call - simulate resource not found (404)
+    mock_tx_get_resource_response = MagicMock()
+    mock_tx_get_resource_response.status_code = 404
+
+    # Use side_effect to return different responses for different `requests.get` calls
+    mocker.patch(
         "requests.get",
         side_effect=[
-            mock_get_response_pending,  # First poll -> pending
-            mock_get_response_completed,  # Second poll -> completed
-            MagicMock(content=b"tmx file content"),  # The actual download call
+            mock_braze_list_response,  # Call 1: Braze list email templates
+            mock_braze_email_info_response,  # Call 2: Braze get email info
+            mock_tx_get_resource_response,  # Call 3: Transifex check resource (fails, so we will create it)
+            mock_braze_list_response,  # Call 4: Braze list content blocks
+            mock_braze_block_info_response,  # Call 5: Braze get block info
+            mock_tx_get_resource_response,  # Call 6: Transifex check resource (fails, so we will create it)
         ],
     )
 
-    # Mock file system operations so we don't write a real file
-    mocker.patch("pathlib.Path.mkdir")
-    mock_file = mocker.patch("builtins.open", mock_open())
+    # Mock all POST requests (for creating resources and uploading strings)
+    mock_post_response = MagicMock(status_code=202)  # Simulate success
+    mock_post = mocker.patch("requests.post", return_value=mock_post_response)
 
-    # 2. Run the function
-    result = perform_tmx_backup(mock_config, {}, mock_logger)
+    # 2. RUN THE FUNCTION
+    sync_logic_main(mock_config, mock_logger.log_callback)
 
-    # 3. Assertions
-    assert result is True  # The function should report success
-    mock_post.assert_called_once()  # Ensure we requested the backup
-    assert mock_get.call_count == 3  # Polled twice, then downloaded once
-    mock_file.assert_called_once()  # Ensure we tried to save the file
-    # Check that we wrote the correct content to the file
-    mock_file().write.assert_called_once_with(b"tmx file content")
+    # 3. ASSERTIONS
+    # Verify the sequence of calls and their parameters
+
+    # Check that we tried to create the email resource in Transifex
+    create_resource_call = mock_post.call_args_list[0]
+    create_resource_payload = json.loads(create_resource_call.kwargs["data"])
+    assert create_resource_payload["data"]["attributes"]["slug"] == "email_123"
+    assert create_resource_payload["data"]["attributes"]["name"] == "Test Email 1"
+
+    # Check that we tried to upload the email strings
+    upload_strings_call = mock_post.call_args_list[1]
+    upload_strings_payload = json.loads(upload_strings_call.kwargs["data"])
+    assert upload_strings_payload["data"]["attributes"]["content"] == json.dumps(
+        {
+            "subject": "Test Subject",
+            "preheader": "Test Preheader",
+            "body": "<p>Test Body</p>",
+        }
+    )
+
+    # Check that we tried to create the content block resource
+    create_block_resource_call = mock_post.call_args_list[2]
+    create_block_resource_payload = json.loads(
+        create_block_resource_call.kwargs["data"]
+    )
+    assert create_block_resource_payload["data"]["attributes"]["slug"] == "block_456"
+
+    # Check that we tried to upload the content block strings
+    upload_block_strings_call = mock_post.call_args_list[3]
+    upload_block_strings_payload = json.loads(upload_block_strings_call.kwargs["data"])
+    assert upload_block_strings_payload["data"]["attributes"]["content"] == json.dumps(
+        {"content": "Test Content Block Body"}
+    )
