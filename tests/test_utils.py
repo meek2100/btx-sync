@@ -11,9 +11,9 @@ def test_resource_path_dev_environment(mocker):
     Test that resource_path returns the correct absolute path in a normal environment.
     """
     # ARRANGE
-    # --- FIX: Safely ensure sys._MEIPASS does not exist for this test ---
-    # raising=False prevents an error if the attribute doesn't exist to begin with.
-    mocker.patch.delattr(sys, "_MEIPASS", raising=False)
+    # --- FIX: Use mocker.delattr, not mocker.patch.delattr ---
+    # Safely ensure sys._MEIPASS does not exist for this test.
+    mocker.delattr(sys, "_MEIPASS", raising=False)
 
     # ACT
     path = resource_path("assets/icon.ico")
