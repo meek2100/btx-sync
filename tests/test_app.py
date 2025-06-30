@@ -72,18 +72,13 @@ def test_start_sync_thread_starts_thread(mock_app, mocker):
     # ACT
     App.start_sync_thread(mock_app)
 
-    # --- FIX: Assert for each step individually ---
-    # 1. Assert that the Thread was instantiated with the correct target
-    mock_thread_class.assert_called_once_with(target=mock_app.sync_thread_target)
+    # --- FIX: Assert that the Thread was instantiated with both target and daemon=True ---
+    mock_thread_class.assert_called_once_with(
+        target=mock_app.sync_thread_target, daemon=True
+    )
 
-    # 2. Get the instance of the thread that was created
-    thread_instance = mock_thread_class.return_value
-
-    # 3. Assert that the daemon attribute was set to True on the instance
-    assert thread_instance.daemon is True
-
-    # 4. Assert that the start method was called on the instance
-    thread_instance.start.assert_called_once()
+    # Assert that the start method was called on the instance
+    mock_thread_class.return_value.start.assert_called_once()
 
 
 def test_sync_thread_target_ui_updates(mock_app, mocker):
