@@ -1,12 +1,11 @@
 # .github/workflows/release.yml
-# This workflow builds the executables when you create a new release on GitHub.
 
 name: Build and Release
 
 on:
   push:
     tags:
-      - 'v*' # Trigger on tags like v1.0, v1.1.0, etc.
+      - 'v*'
 
 jobs:
   build:
@@ -16,91 +15,86 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.10"]
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller
-
-    - name: Build the application with PyInstaller
-      run: |
-        pyinstaller --onefile --windowed --name "btx-sync" --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" --add-data "assets${{ env.pathsep }}assets" --add-data "README.md${{ env.pathsep }}." app.py
-      env:
-        # This sets the correct path separator (';' for Windows, ':' for others) for the --add-data flag
-        pathsep: ${{ runner.os == 'Windows' && ';' || ':' }}
-
-    - name: Package macOS App
-      if: runner.os == 'macOS'
-      run: |
-        zip -r dist/btx-sync-macOS.zip dist/btx-sync.app
-
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: btx-sync-${{ matrix.os }}
-        path: dist/*
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python-version }}" }
+      - name: Install dependencies
+        run: pip install -r requirements.txt && pip install pyinstaller
+      - name: Build the application
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --name "btx-sync" --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" --add-data "assets${{ env.pathsep }}assets" --add-data "README.md${{ env.pathsep }}." app.py
+        env:
+          pathsep: ${{ runner.os == 'Windows' && ';' || ':' }}
+      - name: Package macOS App
+        if: runner.os == 'macOS'
+        run: zip -r dist/btx-sync-macOS.zip dist/btx-sync.app
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: btx-sync-${{ matrix.os }}
+          path: dist/
 
   release:
-    name: Create GitHub Release
+    name: Process, Release and Deploy
     needs: build
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: artifacts
-
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        body: |
-          New release of the btx sync tool.
-          Download the executable for your OS below.
-        draft: false
-        prerelease: false
-
-    - name: Upload Windows Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/btx-sync-windows-latest/btx-sync.exe
-        asset_name: btx-sync-Windows.exe
-        asset_content_type: application/vnd.microsoft.portable-executable
-
-    - name: Upload macOS Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/btx-sync-macos-latest/btx-sync-macOS.zip
-        asset_name: btx-sync-macOS.zip
-        asset_content_type: application/zip
-    
-    - name: Upload Linux Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/btx-sync-ubuntu-latest/btx-sync
-        asset_name: btx-sync-Linux
-        asset_content_type: application/octet-stream
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with: { python-version: "3.10" }
+      - name: Install PyUpdater
+        run: pip install pyupdater
+      - name: Initialize PyUpdater and Import Keys
+        run: |
+          pyupdater init --app-name btx-sync
+          echo "${{ secrets.PYUPDATER_KEYPACK }}" > keypack.pyu
+          pyupdater keys --import keypack.pyu
+      - name: Process and Sign Packages
+        run: |
+          pyupdater pkg --process --sign artifacts/btx-sync-windows-latest/btx-sync.exe
+          pyupdater pkg --process --sign artifacts/btx-sync-macos-latest/btx-sync-macOS.zip
+          pyupdater pkg --process --sign artifacts/btx-sync-ubuntu-latest/btx-sync
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: 'Download the application for your OS below.'
+      - name: Upload Windows Asset
+        uses: actions/upload-release-asset@v1
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/btx-sync-windows-latest/btx-sync.exe
+          asset_name: btx-sync-Windows.exe
+          asset_content_type: application/vnd.microsoft.portable-executable
+      - name: Upload macOS Asset
+        uses: actions/upload-release-asset@v1
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/btx-sync-macos-latest/btx-sync-macOS.zip
+          asset_name: btx-sync-macOS.zip
+          asset_content_type: application/zip
+      - name: Upload Linux Asset
+        uses: actions/upload-release-asset@v1
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/btx-sync-ubuntu-latest/btx-sync
+          asset_name: btx-sync-Linux
+          asset_content_type: application/octet-stream
+      - name: Deploy Update Files to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./pyu-data/deploy
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
