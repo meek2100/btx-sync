@@ -1,6 +1,5 @@
 # app.py
 import customtkinter
-import json
 import keyring
 import threading
 import tkinter  # Use this for tkinter.Menu and tkinter.TclError
@@ -10,7 +9,7 @@ from PIL import Image
 from customtkinter import CTkImage
 
 # Import from our other modules
-from config import SERVICE_NAME, CONFIG_FILE_NAME
+from config import SERVICE_NAME
 from gui_settings import SettingsWindow
 from sync_logic import sync_logic_main
 from utils import resource_path
@@ -164,38 +163,48 @@ class App(customtkinter.CTk):
             self.settings_window.focus()
 
     def load_config_for_sync(self):
+        """Loads all necessary configuration from the system keychain."""
         try:
-            try:
-                with open(CONFIG_FILE_NAME, "r") as f:
-                    config = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
-                config = {}
-
+            config = {}
+            # Load all values from keyring, providing defaults where necessary
             config["BRAZE_API_KEY"] = keyring.get_password(
                 SERVICE_NAME, "braze_api_key"
             )
             config["TRANSIFEX_API_TOKEN"] = keyring.get_password(
                 SERVICE_NAME, "transifex_api_token"
             )
+            config["BRAZE_REST_ENDPOINT"] = (
+                keyring.get_password(SERVICE_NAME, "braze_endpoint")
+                or "https://rest.iad-05.braze.com"
+            )
+            config["TRANSIFEX_ORGANIZATION_SLUG"] = (
+                keyring.get_password(SERVICE_NAME, "transifex_org") or "control4"
+            )
+            config["TRANSIFEX_PROJECT_SLUG"] = (
+                keyring.get_password(SERVICE_NAME, "transifex_project") or "braze"
+            )
+            config["BACKUP_PATH"] = keyring.get_password(
+                SERVICE_NAME, "backup_path"
+            ) or str(Path.home() / "Downloads")
+            config["LOG_LEVEL"] = (
+                keyring.get_password(SERVICE_NAME, "log_level") or "Normal"
+            )
 
-            config["BRAZE_REST_ENDPOINT"] = config.get(
-                "braze_endpoint", "https://rest.iad-05.braze.com"
+            # Load boolean, defaulting to True ("1") if not found
+            backup_enabled_str = (
+                keyring.get_password(SERVICE_NAME, "backup_enabled") or "1"
             )
-            config["TRANSIFEX_ORGANIZATION_SLUG"] = config.get(
-                "transifex_org", "control4"
-            )
-            config["TRANSIFEX_PROJECT_SLUG"] = config.get("transifex_project", "braze")
-            config["BACKUP_ENABLED"] = config.get("backup_enabled", True)
-            config["BACKUP_PATH"] = config.get(
-                "backup_path", str(Path.home() / "Downloads")
-            )
-            config["LOG_LEVEL"] = config.get("log_level", "Normal")
+            config["BACKUP_ENABLED"] = backup_enabled_str == "1"
 
+            # Check that essential keys were found
             if all([config["BRAZE_API_KEY"], config["TRANSIFEX_API_TOKEN"]]):
                 return config
+
+            # If essential keys are missing, return None to trigger error message
             return None
+
         except Exception as e:
-            self.log_message(f"Error loading credentials: {e}")
+            self.log_message(f"Error loading configuration from keychain: {e}")
             return None
 
 

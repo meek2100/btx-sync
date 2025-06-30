@@ -20,10 +20,6 @@ build/
 dist/
 *.spec
 
-# Local configuration files
-# This file contains user-specific paths and should not be committed.
-config.json
-
 # IDE / Editor specific files
 # We ignore the whole .vscode folder but force-add the files
 # that should be shared for a consistent development experience.

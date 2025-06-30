@@ -2,12 +2,11 @@
 
 import customtkinter
 import keyring
-import json
 import webbrowser
 from tkinter import messagebox, filedialog
 from pathlib import Path
 
-from config import SERVICE_NAME, CONFIG_FILE_NAME
+from config import SERVICE_NAME
 
 
 class SettingsWindow(customtkinter.CTkToplevel):
@@ -83,15 +82,30 @@ class SettingsWindow(customtkinter.CTkToplevel):
         )
         self.log_level_menu.grid(row=11, column=1, padx=20, pady=5, sticky="w")
 
-        # Action Buttons
+        # --- Action Buttons ---
         self.button_frame = customtkinter.CTkFrame(self, fg_color="transparent")
         self.button_frame.grid(
-            row=12, column=1, columnspan=2, padx=20, pady=(20, 10), sticky="e"
+            row=12, column=0, columnspan=3, padx=20, pady=(20, 10), sticky="ew"
         )
+        self.button_frame.grid_columnconfigure(
+            0, weight=1
+        )  # Make left column expandable
+
+        # ADDED: The "Reset to Defaults" button
+        self.reset_button = customtkinter.CTkButton(
+            self.button_frame,
+            text="Reset to Defaults",
+            command=self.confirm_and_reset,
+            fg_color="#D32F2F",  # A distinct color for a destructive action
+            hover_color="#B71C1C",
+        )
+        self.reset_button.pack(side="left", padx=(0, 10))
+
         self.save_button = customtkinter.CTkButton(
             self.button_frame, text="Save", command=self.save_and_close
         )
-        self.save_button.pack(side="right", padx=(10, 0))
+        self.save_button.pack(side="right")
+
         self.cancel_button = customtkinter.CTkButton(
             self.button_frame,
             text="Cancel",
@@ -99,7 +113,7 @@ class SettingsWindow(customtkinter.CTkToplevel):
             fg_color="transparent",
             border_width=1,
         )
-        self.cancel_button.pack(side="right")
+        self.cancel_button.pack(side="right", padx=(0, 10))
 
         self.load_settings()
 
@@ -142,51 +156,112 @@ class SettingsWindow(customtkinter.CTkToplevel):
         self.destroy()
 
     def save_settings(self):
-        keyring.set_password(
-            SERVICE_NAME, "braze_api_key", self.braze_api_key_entry.get()
-        )
-        keyring.set_password(
-            SERVICE_NAME, "transifex_api_token", self.transifex_api_token_entry.get()
-        )
-        config = {
-            "braze_endpoint": self.braze_endpoint_entry.get(),
-            "transifex_org": self.transifex_org_slug_entry.get(),
-            "transifex_project": self.transifex_project_slug_entry.get(),
-            "backup_enabled": self.backup_checkbox.get() == 1,
-            "backup_path": self.backup_path_entry.get(),
-            "log_level": self.log_level_menu.get(),
-        }
-        with open(CONFIG_FILE_NAME, "w") as f:
-            json.dump(config, f, indent=4)
+        """Saves all settings to the system keychain."""
 
-        # ADDED: Provide visual feedback to the user that the save was successful.
+        # Helper to set a password or delete it if empty
+        def set_key(key, value):
+            if value:
+                keyring.set_password(SERVICE_NAME, key, value)
+            else:
+                try:
+                    keyring.delete_password(SERVICE_NAME, key)
+                except keyring.errors.PasswordNotFoundError:
+                    pass  # It's okay if it doesn't exist
+
+        # Save API keys
+        set_key("braze_api_key", self.braze_api_key_entry.get())
+        set_key("transifex_api_token", self.transifex_api_token_entry.get())
+
+        # Save other settings
+        set_key("braze_endpoint", self.braze_endpoint_entry.get())
+        set_key("transifex_org", self.transifex_org_slug_entry.get())
+        set_key("transifex_project", self.transifex_project_slug_entry.get())
+        set_key("backup_path", self.backup_path_entry.get())
+        set_key("log_level", self.log_level_menu.get())
+
+        # Save boolean as a string "1" or "0"
+        backup_enabled_value = "1" if self.backup_checkbox.get() == 1 else "0"
+        set_key("backup_enabled", backup_enabled_value)
+
         messagebox.showinfo("Success", "Settings have been saved successfully.")
 
     def load_settings(self):
-        try:
-            with open(CONFIG_FILE_NAME, "r") as f:
-                config = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            config = {}
+        """Loads all settings from the system keychain after clearing current values."""
+        # --- ADDED: Clear all existing fields before loading ---
+        entry_widgets = [
+            self.braze_api_key_entry,
+            self.transifex_api_token_entry,
+            self.braze_endpoint_entry,
+            self.transifex_org_slug_entry,
+            self.transifex_project_slug_entry,
+            self.backup_path_entry,
+        ]
+        for entry in entry_widgets:
+            entry.delete(0, "end")
+        # --- End of added block ---
 
-        braze_key = keyring.get_password(SERVICE_NAME, "braze_api_key")
-        tx_token = keyring.get_password(SERVICE_NAME, "transifex_api_token")
-
-        braze_endpoint = config.get("braze_endpoint", "https://rest.iad-05.braze.com")
-        tx_org = config.get("transifex_org", "control4")
-        tx_project = config.get("transifex_project", "braze")
-        backup_enabled = config.get("backup_enabled", True)
-        backup_path = config.get("backup_path", str(Path.home() / "Downloads"))
-        log_level = config.get("log_level", "Normal")
-
+        # Load API Keys
+        braze_key = keyring.get_password(SERVICE_NAME, "braze_api_key") or ""
+        tx_token = keyring.get_password(SERVICE_NAME, "transifex_api_token") or ""
         if braze_key:
             self.braze_api_key_entry.insert(0, braze_key)
         if tx_token:
             self.transifex_api_token_entry.insert(0, tx_token)
+
+        # Load other settings with defaults
+        braze_endpoint = (
+            keyring.get_password(SERVICE_NAME, "braze_endpoint")
+            or "https://rest.iad-05.braze.com"
+        )
+        tx_org = keyring.get_password(SERVICE_NAME, "transifex_org") or "control4"
+        tx_project = keyring.get_password(SERVICE_NAME, "transifex_project") or "braze"
+        backup_path = keyring.get_password(SERVICE_NAME, "backup_path") or str(
+            Path.home() / "Downloads"
+        )
+        log_level = keyring.get_password(SERVICE_NAME, "log_level") or "Normal"
+
+        # Load boolean, defaulting to True ("1") if not found
+        backup_enabled = keyring.get_password(SERVICE_NAME, "backup_enabled") or "1"
+
+        # Populate UI
         self.braze_endpoint_entry.insert(0, braze_endpoint)
         self.transifex_org_slug_entry.insert(0, tx_org)
         self.transifex_project_slug_entry.insert(0, tx_project)
         self.backup_path_entry.insert(0, backup_path)
-        if backup_enabled:
+        if backup_enabled == "1":
             self.backup_checkbox.select()
+        else:
+            self.backup_checkbox.deselect()
         self.log_level_menu.set(log_level)
+
+    def confirm_and_reset(self):
+        """Shows a confirmation dialog and resets all settings if confirmed."""
+        answer = messagebox.askyesno(
+            "Confirm Reset",
+            "Are you sure you want to delete all saved settings and reset to defaults?\n\nThis action cannot be undone.",
+        )
+        if answer:
+            # List of all keys we use in keyring
+            keys_to_delete = [
+                "braze_api_key",
+                "transifex_api_token",
+                "braze_endpoint",
+                "transifex_org",
+                "transifex_project",
+                "backup_path",
+                "log_level",
+                "backup_enabled",
+            ]
+            for key in keys_to_delete:
+                try:
+                    # Attempt to delete each key
+                    keyring.delete_password(SERVICE_NAME, key)
+                except keyring.errors.PasswordNotFoundError:
+                    # It's okay if the key doesn't exist, just continue
+                    pass
+
+            # Reload the settings window to clear fields and show defaults
+            self.load_settings()
+            messagebox.showinfo(
+                "Success", "All settings have been reset to their default values."
+            )
