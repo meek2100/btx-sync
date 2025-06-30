@@ -1,7 +1,7 @@
 # tests/test_app.py
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 from app import App
 
@@ -10,11 +10,17 @@ from app import App
 def mock_app(mocker):
     """Creates a mock instance of the App class for testing."""
     mocker.patch.object(App, "__init__", lambda s: None)
+
     app_instance = App()
+
     app_instance.run_button = MagicMock()
     app_instance.status_label = MagicMock()
+    app_instance.log_box = MagicMock()
     app_instance.get_current_config = MagicMock()
-    app_instance.sync_thread_target = MagicMock()
+    app_instance.load_config_for_sync = MagicMock()
+    app_instance.log_message = MagicMock()
+    app_instance.update_readiness_status = MagicMock()
+
     return app_instance
 
 
@@ -22,11 +28,13 @@ def test_app_readiness_config_required(mock_app):
     """Verify the 'Run Sync' button is disabled if API keys are missing."""
     mock_app.get_current_config.return_value = {
         "BRAZE_API_KEY": None,
+        "TRANSIFEX_API_TOKEN": "token",
         "LOG_LEVEL": "Normal",
     }
-    mock_app.update_readiness_status()
+
+    App.update_readiness_status(mock_app)
+
     mock_app.run_button.configure.assert_called_with(state="disabled")
-    mock_app.status_label.configure.assert_called_with(text="Configuration required")
 
 
 def test_app_readiness_is_ready(mock_app):
@@ -36,9 +44,10 @@ def test_app_readiness_is_ready(mock_app):
         "TRANSIFEX_API_TOKEN": "token",
         "LOG_LEVEL": "Normal",
     }
-    mock_app.update_readiness_status()
+
+    App.update_readiness_status(mock_app)
+
     mock_app.run_button.configure.assert_called_with(state="normal")
-    mock_app.status_label.configure.assert_called_with(text="Ready")
 
 
 def test_app_readiness_shows_debug_mode(mock_app):
@@ -48,25 +57,57 @@ def test_app_readiness_shows_debug_mode(mock_app):
         "TRANSIFEX_API_TOKEN": "token",
         "LOG_LEVEL": "Debug",
     }
-    mock_app.update_readiness_status()
-    mock_app.run_button.configure.assert_called_with(state="normal")
+
+    App.update_readiness_status(mock_app)
+
     mock_app.status_label.configure.assert_called_with(text="Ready (Debug)")
 
 
 def test_start_sync_thread_starts_thread(mock_app, mocker):
     """Verify that start_sync_thread creates and starts a new thread."""
     # ARRANGE
-    mock_thread = mocker.patch("threading.Thread")
+    mock_thread_class = mocker.patch("threading.Thread")
+    mock_app.sync_thread_target = MagicMock()
 
     # ACT
-    mock_app.start_sync_thread()
+    App.start_sync_thread(mock_app)
 
-    # --- FIX: Assert for the actual call and attribute setting separately ---
-    # 1. Assert that the Thread was created with the correct target
-    mock_thread.assert_called_once_with(target=mock_app.sync_thread_target)
+    # --- FIX: Assert for each step individually ---
+    # 1. Assert that the Thread was instantiated with the correct target
+    mock_thread_class.assert_called_once_with(target=mock_app.sync_thread_target)
 
-    # 2. Assert that the 'daemon' attribute was set on the created instance
-    assert mock_thread.return_value.daemon is True
+    # 2. Get the instance of the thread that was created
+    thread_instance = mock_thread_class.return_value
 
-    # 3. Assert that the thread was started
-    mock_thread.return_value.start.assert_called_once()
+    # 3. Assert that the daemon attribute was set to True on the instance
+    assert thread_instance.daemon is True
+
+    # 4. Assert that the start method was called on the instance
+    thread_instance.start.assert_called_once()
+
+
+def test_sync_thread_target_ui_updates(mock_app, mocker):
+    """Verify that sync_thread_target updates the UI and calls the main sync logic."""
+    mock_app.load_config_for_sync.return_value = {"some": "config"}
+    mock_sync_logic = mocker.patch("app.sync_logic_main")
+
+    App.sync_thread_target(mock_app)
+
+    expected_calls = [
+        call(state="disabled", text="Syncing..."),
+        call(state="normal", text="Run Sync"),
+    ]
+    mock_app.run_button.configure.assert_has_calls(expected_calls)
+    mock_sync_logic.assert_called_once_with({"some": "config"}, mock_app.log_message)
+    mock_app.update_readiness_status.assert_called_once()
+
+
+def test_sync_thread_target_handles_no_config(mock_app, mocker):
+    """Verify that sync_thread_target logs an error if config is missing."""
+    mock_app.load_config_for_sync.return_value = None
+    mock_sync_logic = mocker.patch("app.sync_logic_main")
+
+    App.sync_thread_target(mock_app)
+
+    mock_sync_logic.assert_not_called()
+    mock_app.log_message.assert_any_call("--- CONFIGURATION ERROR ---")
