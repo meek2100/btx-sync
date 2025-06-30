@@ -86,3 +86,20 @@ def test_sync_thread_target_handles_no_config(mock_app, mocker):
     App.sync_thread_target(mock_app)
     mock_sync_logic.assert_not_called()
     mock_app.log_message.assert_any_call("--- CONFIGURATION ERROR ---")
+
+
+def test_open_settings_focuses_existing_window(mock_app):
+    """
+    Verify that if the settings window already exists, it is focused instead of recreated.
+    """
+    # ARRANGE
+    # Simulate the window existing
+    mock_app.settings_window = MagicMock()
+    mock_app.settings_window.winfo_exists.return_value = True
+
+    # ACT
+    App.open_settings(mock_app)
+
+    # ASSERT
+    # Check that the focus method was called on the existing window
+    mock_app.settings_window.focus.assert_called_once()

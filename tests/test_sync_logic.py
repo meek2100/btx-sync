@@ -1,5 +1,6 @@
 # tests/test_sync_logic.py
 
+import json
 import pytest
 import requests
 from unittest.mock import MagicMock
@@ -194,3 +195,73 @@ def test_perform_tmx_backup_job_fails(mocker, mock_config):
     mocker.patch("requests.get", return_value=mock_status_response)
     result = sync_logic.perform_tmx_backup(mock_config, {}, AppLogger(no_op_callback))
     assert result is False
+
+
+def test_perform_tmx_backup_timeout(mocker, mock_config):
+    """Verify that the TMX backup polling correctly times out."""
+    # ARRANGE
+    mocker.patch(
+        "requests.post",
+        return_value=MagicMock(json=lambda: {"data": {"id": "job_123"}}),
+    )
+    # Mock the status check to always return 'pending'
+    mocker.patch(
+        "requests.get",
+        return_value=MagicMock(
+            json=lambda: {"data": {"attributes": {"status": "pending"}}}
+        ),
+    )
+    # Mock time.time to simulate a timeout
+    mocker.patch(
+        "time.time", side_effect=[100, 101, 102, 103, 104, 500]
+    )  # Last call exceeds timeout
+    mocker.patch("time.sleep")  # Prevent test from actually sleeping
+
+    # ACT
+    result = sync_logic.perform_tmx_backup(mock_config, {}, AppLogger(no_op_callback))
+
+    # ASSERT
+    assert result is False
+
+
+def test_upload_source_content_success(mocker, mock_config):
+    """Verify that a successful upload calls the Transifex API correctly."""
+    # ARRANGE
+    mock_config["BACKUP_ENABLED"] = False
+    # Mock the list call to return one template
+    mock_braze_list = MagicMock(
+        json=lambda: {
+            "templates": [
+                {"email_template_id": "e123", "template_name": "Test Template"}
+            ]
+        }
+    )
+    # Mock the details call to return content
+    mock_braze_info = MagicMock(json=lambda: {"subject": "Hello", "body": "World"})
+    # Mock the Transifex resource check
+    mock_tx_get = MagicMock(status_code=404)
+    mocker.patch(
+        "requests.get",
+        side_effect=[
+            mock_braze_list,
+            mock_braze_info,
+            mock_tx_get,
+            MagicMock(json=lambda: {}),
+        ],
+    )
+
+    # This is the call we are verifying
+    mock_post = mocker.patch("requests.post")
+
+    # ACT
+    sync_logic.sync_logic_main(mock_config, no_op_callback)
+
+    # ASSERT
+    # The first POST creates the resource, the second uploads the content.
+    assert mock_post.call_count == 2
+    # Check the payload of the second call
+    upload_call_args = mock_post.call_args_list[1]
+    upload_payload = json.loads(upload_call_args.kwargs["data"])
+
+    assert upload_payload["data"]["type"] == "resource_strings_async_uploads"
+    assert '"subject": "Hello"' in upload_payload["data"]["attributes"]["content"]
