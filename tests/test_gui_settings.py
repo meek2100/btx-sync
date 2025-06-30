@@ -8,7 +8,8 @@ from gui_settings import SettingsWindow, SERVICE_NAME
 
 
 class TestSettings(SettingsWindow):
-    def __init__(self):
+    def setup_method(self):
+        """This setup method replaces the __init__ to avoid pytest warnings."""
         self.braze_api_key_entry = MagicMock()
         self.transifex_api_token_entry = MagicMock()
         self.braze_endpoint_entry = MagicMock()
@@ -31,7 +32,9 @@ def settings_logic(mocker):
     mocker.patch("keyring.delete_password")
     mocker.patch("tkinter.messagebox.askyesno", return_value=True)
     mocker.patch("tkinter.messagebox.showinfo")
-    return TestSettings()
+    settings = TestSettings()
+    settings.setup_method()
+    return settings
 
 
 def test_load_settings(settings_logic):
