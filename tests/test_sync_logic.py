@@ -1,9 +1,9 @@
 # tests/test_sync_logic.py
 
-import json
 import pytest
 import requests
-from unittest.mock import MagicMock
+import json
+from unittest.mock import MagicMock, call
 
 import sync_logic
 from logger import AppLogger
@@ -27,6 +27,50 @@ def mock_config(tmp_path):
         "BACKUP_PATH": str(tmp_path),
         "LOG_LEVEL": "Debug",
     }
+
+
+# --- NEW TEST TO IMPROVE COVERAGE ---
+def test_fetch_braze_list_pagination(mocker, mock_config):
+    """Verify that the fetch_braze_list function correctly handles pagination."""
+    mock_config["BACKUP_ENABLED"] = False
+    # Mock two pages of results, followed by an empty page to stop the loop
+    page1 = {"templates": [{"email_template_id": "id1"}] * 100}  # Full page
+    page2 = {"templates": [{"email_template_id": "id2"}] * 50}  # Partial page
+    page3 = {"templates": []}  # Empty page
+
+    mock_get = mocker.patch(
+        "requests.get",
+        side_effect=[
+            MagicMock(json=lambda: page1),
+            MagicMock(json=lambda: page2),
+            MagicMock(json=lambda: page3),
+            MagicMock(json=lambda: {"content_blocks": []}),  # For the second list call
+        ],
+    )
+    mocker.patch("requests.post")  # Mock other calls to prevent errors
+
+    sync_logic.sync_logic_main(mock_config, no_op_callback)
+
+    # Assert that requests.get was called three times for the templates list
+    expected_calls = [
+        call(
+            "https://rest.mock.braze.com/templates/email/list?limit=100",
+            headers={"Authorization": "Bearer test_braze_key"},
+        ),
+        call(
+            "https://rest.mock.braze.com/templates/email/list?limit=100&offset=100",
+            headers={"Authorization": "Bearer test_braze_key"},
+        ),
+        call(
+            "https://rest.mock.braze.com/templates/email/list?limit=100&offset=150",
+            headers={"Authorization": "Bearer test_braze_key"},
+        ),
+        call(
+            "https://rest.mock.braze.com/content_blocks/list?limit=100",
+            headers={"Authorization": "Bearer test_braze_key"},
+        ),
+    ]
+    mock_get.assert_has_calls(expected_calls, any_order=False)
 
 
 def test_sync_main_stops_if_backup_fails(mocker, mock_config):

@@ -43,6 +43,7 @@ def settings_logic(mocker):
     logic_container.backup_path_entry = MagicMock()
     logic_container.backup_checkbox = MagicMock()
     logic_container.log_level_menu = MagicMock()
+    logic_container.update_checkbox = MagicMock()
 
     return logic_container
 
@@ -58,48 +59,45 @@ def test_load_settings(settings_logic):
         "/path",
         "Normal",
         "1",
+        "1",
     ]
-
     settings_logic.load_settings()
-
     settings_logic.braze_api_key_entry.insert.assert_called_with(0, "key")
     settings_logic.backup_checkbox.select.assert_called_once()
+    settings_logic.update_checkbox.select.assert_called_once()
+
+
+# --- NEW TEST TO IMPROVE COVERAGE ---
+def test_load_settings_with_disabled_options(settings_logic):
+    """Verify that disabled settings are correctly loaded."""
+    keyring.get_password.side_effect = ["", "", "", "", "", "", "Debug", "0", "0"]
+    settings_logic.load_settings()
+    settings_logic.backup_checkbox.deselect.assert_called_once()
+    settings_logic.update_checkbox.deselect.assert_called_once()
+    settings_logic.log_level_menu.set.assert_called_with("Debug")
 
 
 def test_save_settings(settings_logic):
     """Verify that values from the UI entries are correctly saved to keyring."""
     settings_logic.braze_api_key_entry.get.return_value = "saved_braze_key"
     settings_logic.backup_checkbox.get.return_value = 1
-
+    settings_logic.update_checkbox.get.return_value = 1
     settings_logic.save_settings()
-
     keyring.set_password.assert_any_call(SERVICE_NAME, "backup_enabled", "1")
-
-
-def test_save_settings_backup_disabled(settings_logic):
-    """Test saving when the backup checkbox is disabled."""
-    settings_logic.backup_checkbox.get.return_value = 0
-
-    settings_logic.save_settings()
-
-    keyring.set_password.assert_any_call(SERVICE_NAME, "backup_enabled", "0")
+    keyring.set_password.assert_any_call(SERVICE_NAME, "auto_update_enabled", "1")
 
 
 def test_save_settings_deletes_empty_keys(settings_logic):
     """Verify that if a setting is empty, it is deleted from keyring."""
     settings_logic.braze_api_key_entry.get.return_value = ""
-
     settings_logic.save_settings()
-
     keyring.delete_password.assert_any_call(SERVICE_NAME, "braze_api_key")
 
 
 def test_reset_settings(settings_logic):
     """Verify that resetting calls delete_password for all known keys."""
-    # Add the load_settings method back as a mock to check if it's called
     settings_logic.load_settings = MagicMock()
-
     settings_logic.confirm_and_reset()
-
-    assert keyring.delete_password.call_count == 8
+    # --- FIX: The count should be 9 to include 'auto_update_enabled' ---
+    assert keyring.delete_password.call_count == 9
     settings_logic.load_settings.assert_called_once()
