@@ -22,7 +22,7 @@ APP_VERSION = "1.0.0"
 class UpdateClientConfig:
     # IMPORTANT: You must generate your own key and replace this placeholder.
     # See the "Final Setup Instructions" at the end of the response.
-    PUBLIC_KEY = "REPLACE_WITH_YOUR_PYUPDATER_PUBLIC_KEY"
+    PUBLIC_KEY = "PTR0RIH78RCpJFhUZdqPCjnMzW8rQnFpyvKBfua9XQk"
     APP_NAME = "btx-sync"
     COMPANY_NAME = "meek2100"
     UPDATE_URLS = ["https://meek2100.github.io/btx-sync/"]
