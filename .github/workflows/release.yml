@@ -34,7 +34,10 @@ jobs:
 
     - name: Build the application with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name "BrazeTransifexSync" app.py
+        pyinstaller --onefile --windowed --name "BrazeTransifexSync" --icon="assets/icon.ico" --add-data "assets${{ env.pathsep }}assets" app.py
+      env:
+        # This sets the correct path separator (';' for Windows, ':' for others) for the --add-data flag
+        pathsep: ${{ runner.os == 'Windows' && ';' || ':' }}
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
