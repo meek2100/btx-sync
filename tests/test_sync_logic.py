@@ -167,3 +167,43 @@ def test_sync_handles_httperror(mocker, mock_config):
     full_log = "\n".join(logged_messages)
     assert "[FATAL] An API error occurred." in full_log
     assert "Status Code: 401" in full_log
+
+
+def test_sync_handles_connection_error(mocker, mock_config):
+    """Test that the main sync logic catches and logs a ConnectionError."""
+    # ARRANGE
+    mock_config["BACKUP_ENABLED"] = False
+    mocker.patch(
+        "requests.get", side_effect=requests.exceptions.ConnectionError("Network down")
+    )
+    logged_messages = []
+
+    def log_callback(message):
+        logged_messages.append(message)
+
+    # ACT
+    sync_logic.sync_logic_main(mock_config, log_callback)
+
+    # ASSERT
+    full_log = "\n".join(logged_messages)
+    assert "[FATAL] A network connection error occurred." in full_log
+
+
+def test_perform_tmx_backup_job_fails(mocker, mock_config):
+    """Test the TMX backup flow when Transifex reports a failed job."""
+    # ARRANGE
+    mocker.patch(
+        "requests.post",
+        return_value=MagicMock(json=lambda: {"data": {"id": "job_123"}}),
+    )
+    # Mock the status check to return 'failed'
+    mock_status_response = MagicMock(
+        json=lambda: {"data": {"attributes": {"status": "failed"}}}
+    )
+    mocker.patch("requests.get", return_value=mock_status_response)
+
+    # ACT
+    result = sync_logic.perform_tmx_backup(mock_config, {}, AppLogger(no_op_callback))
+
+    # ASSERT
+    assert result is False
