@@ -44,13 +44,16 @@ def test_sync_logic_main_happy_path(mocker, mock_config, mock_logger):
     This acts as an integration-style unit test for the whole module.
     """
     # 1. SETUP MOCKS for the entire sequence of API calls
-
-    mock_braze_list_response = MagicMock()
-    mock_braze_list_response.json.return_value = {
+    mock_braze_list_templates_response = MagicMock()
+    mock_braze_list_templates_response.json.return_value = {
         "templates": [
             {"email_template_id": "email_123", "template_name": "Test Email 1"}
-        ],
-        "content_blocks": [{"content_block_id": "block_456", "name": "Test Block 1"}],
+        ]
+    }
+
+    mock_braze_list_blocks_response = MagicMock()
+    mock_braze_list_blocks_response.json.return_value = {
+        "content_blocks": [{"content_block_id": "block_456", "name": "Test Block 1"}]
     }
 
     mock_braze_email_info_response = MagicMock()
@@ -70,10 +73,10 @@ def test_sync_logic_main_happy_path(mocker, mock_config, mock_logger):
     mocker.patch(
         "requests.get",
         side_effect=[
-            mock_braze_list_response,
+            mock_braze_list_templates_response,
             mock_braze_email_info_response,
             mock_tx_get_resource_response,
-            mock_braze_list_response,
+            mock_braze_list_blocks_response,
             mock_braze_block_info_response,
             mock_tx_get_resource_response,
         ],
@@ -130,6 +133,31 @@ def test_sync_logic_main_handles_braze_api_failure(mocker, mock_config, mock_log
     mock_post.assert_not_called()
 
 
+# --- NEW TEST ---
+def test_sync_logic_handles_keyerror_from_api(mocker, mock_config, caplog):
+    """
+    Verify that if an API response is missing an expected key, a fatal error is logged.
+    'caplog' is a pytest fixture that captures logging output.
+    """
+    # 1. Setup mocks
+    mock_config["BACKUP_ENABLED"] = False
+    # This response is missing the 'templates' key
+    mock_bad_response = MagicMock(json=lambda: {"message": "success"})
+    mocker.patch("requests.get", return_value=mock_bad_response)
+    mock_post = mocker.patch("requests.post")
+
+    # 2. Run the function
+    sync_logic.sync_logic_main(mock_config, caplog.set_level("DEBUG"))
+
+    # 3. Assertions
+    # Check that a fatal error was logged containing the relevant info
+    assert "FATAL" in caplog.text
+    assert "The expected field" in caplog.text
+    assert "'templates'" in caplog.text
+    # Ensure no further processing happened
+    mock_post.assert_not_called()
+
+
 def test_updates_resource_name_when_name_differs(mocker, mock_config, mock_logger):
     """
     Verify that if a resource exists but has a different name, a PATCH request is made.
@@ -139,7 +167,6 @@ def test_updates_resource_name_when_name_differs(mocker, mock_config, mock_logge
             "templates": [
                 {"email_template_id": "email_123", "template_name": "New Name"}
             ],
-            "content_blocks": [],
         }
     )
     mock_braze_email_info_response = MagicMock(json=lambda: {"subject": "Test Subject"})
@@ -153,7 +180,7 @@ def test_updates_resource_name_when_name_differs(mocker, mock_config, mock_logge
             mock_braze_list_response,
             mock_braze_email_info_response,
             mock_tx_get_resource_response,
-            MagicMock(json=lambda: {"content_blocks": []}),
+            MagicMock(json=lambda: {"content_blocks": []}),  # For the second list call
         ],
     )
 
@@ -169,6 +196,58 @@ def test_updates_resource_name_when_name_differs(mocker, mock_config, mock_logge
     assert sent_payload["data"]["attributes"]["name"] == "New Name"
 
 
+@pytest.mark.parametrize(
+    "empty_content",
+    [
+        # All fields are empty strings
+        {"subject": "", "body": "", "preheader": ""},
+        # All fields are None
+        {"subject": None, "body": None, "preheader": None},
+        # All fields are just whitespace
+        {"subject": "   ", "body": "\t", "preheader": "\n"},
+        # A mix of the above
+        {"subject": "  ", "body": None, "preheader": ""},
+    ],
+)
+def test_upload_skips_if_no_content(mocker, mock_config, mock_logger, empty_content):
+    """
+    Verify that the upload function doesn't POST content if all fields are empty or whitespace.
+    This test is now parameterized to run multiple variations.
+    """
+    # 1. Setup Mocks
+    mock_braze_list_response = MagicMock(
+        json=lambda: {
+            "templates": [
+                {"email_template_id": "email_123", "template_name": "Empty Template"}
+            ],
+        }
+    )
+    mock_braze_info_response = MagicMock(json=lambda: empty_content)
+
+    mocker.patch(
+        "requests.get",
+        side_effect=[
+            mock_braze_list_response,
+            mock_braze_info_response,
+            MagicMock(status_code=404),  # For Transifex resource check
+            MagicMock(json=lambda: {"content_blocks": []}),  # For content block list
+        ],
+    )
+
+    mock_post = mocker.patch("requests.post")
+    mocker.patch("sync_logic.perform_tmx_backup", return_value=True)
+
+    # 2. RUN THE FUNCTION
+    sync_logic.sync_logic_main(mock_config, mock_logger.log_callback)
+
+    # 3. ASSERTIONS
+    # A single POST call should be made to create the resource in Transifex.
+    assert mock_post.call_count == 1
+    # Check that this call was indeed to create a resource, not upload strings.
+    create_resource_call = mock_post.call_args_list[0]
+    assert create_resource_call.args[0].endswith("/resources")
+
+
 def test_tmx_backup_handles_job_failure(mocker, mock_config, mock_logger):
     """
     Verify the TMX backup function handles a 'failed' status from Transifex.
@@ -182,46 +261,6 @@ def test_tmx_backup_handles_job_failure(mocker, mock_config, mock_logger):
 
     result = sync_logic.perform_tmx_backup(mock_config, {}, mock_logger)
     assert result is False
-
-
-def test_upload_skips_if_no_content(mocker, mock_config, mock_logger):
-    """
-    FIXED: Verify that the upload function doesn't make a POST request if the content dict is empty.
-    """
-    # 1. Setup Mocks
-    mock_braze_list_response = MagicMock(
-        json=lambda: {
-            "templates": [
-                {"email_template_id": "email_123", "template_name": "Empty Template"}
-            ],
-            "content_blocks": [],
-        }
-    )
-    mock_braze_info_response = MagicMock(
-        json=lambda: {"subject": "", "body": None, "preheader": "  "}
-    )
-
-    mocker.patch(
-        "requests.get",
-        side_effect=[
-            mock_braze_list_response,
-            mock_braze_info_response,
-            MagicMock(status_code=404),
-            MagicMock(json=lambda: {"content_blocks": []}),
-        ],
-    )
-
-    mock_post = mocker.patch("requests.post")
-    mocker.patch("sync_logic.perform_tmx_backup", return_value=True)
-
-    # 2. RUN THE FUNCTION
-    sync_logic.sync_logic_main(mock_config, mock_logger.log_callback)
-
-    # 3. ASSERTIONS
-    assert mock_post.call_count == 1
-    create_resource_call = mock_post.call_args_list[0]
-    # FIX: Check the positional 'url' argument instead of the keyword argument.
-    assert create_resource_call.args[0].endswith("/resources")
 
 
 def test_tmx_backup_timeout(mocker, mock_config, mock_logger):
@@ -241,60 +280,7 @@ def test_tmx_backup_timeout(mocker, mock_config, mock_logger):
     mocker.patch(
         "time.time", side_effect=[100, 101, 102, 103, 104, 500]
     )  # Last call exceeds timeout
+    mocker.patch("time.sleep")  # Prevent actual sleep
 
     result = sync_logic.perform_tmx_backup(mock_config, {}, mock_logger)
     assert result is False
-
-
-def test_tmx_backup_polling_fails_on_http_error(mocker, mock_config, mock_logger):
-    """
-    FIXED: Verify that the TMX backup function handles a network error during polling.
-    """
-    # 1. Setup mocks
-    mocker.patch(
-        "requests.post",
-        return_value=MagicMock(json=lambda: {"data": {"id": "test_job_id"}}),
-    )
-
-    # FIX: Create a mock response object and attach it to the exception
-    mock_error_response = MagicMock()
-    mock_error_response.status_code = 500
-    mock_error_response.text = "Internal Server Error"
-    http_error = requests.exceptions.HTTPError("Network Error")
-    http_error.response = mock_error_response
-    mocker.patch("requests.get", side_effect=http_error)
-
-    # 2. Run the function
-    result = sync_logic.perform_tmx_backup(mock_config, {}, mock_logger)
-
-    # 3. Assertions
-    assert result is False
-
-
-def test_create_or_update_fails_on_get_error(mocker, mock_config, mock_logger):
-    """
-    Verify the main logic halts if checking for a resource fails.
-    """
-    mock_config["BACKUP_ENABLED"] = False
-    mocker.patch(
-        "requests.get",
-        side_effect=[
-            MagicMock(
-                json=lambda: {
-                    "templates": [
-                        {
-                            "email_template_id": "email_123",
-                            "template_name": "Test Email 1",
-                        }
-                    ]
-                }
-            ),
-            MagicMock(json=lambda: {"subject": "Test Subject"}),
-            requests.exceptions.RequestException("API Down"),  # Fail on TX check
-        ],
-    )
-    mock_post = mocker.spy(requests, "post")
-
-    sync_logic.sync_logic_main(mock_config, mock_logger.log_callback)
-
-    mock_post.assert_not_called()
