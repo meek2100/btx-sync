@@ -1,17 +1,19 @@
 # .github/workflows/ci.yml
-# This workflow runs tests on every push and pull request to the main branch.
+# This workflow runs tests on every push and pull request to the main and develop branches.
 
 name: Run Tests
 
 on:
   push:
-    branches: [ "main, develop" ]
+    # --- FIX: Correctly define the list of branches ---
+    branches: [ "main", "develop" ]
   pull_request:
-    branches: [ "main, develop" ]
+    # --- FIX: This now correctly triggers for PRs TO main or develop ---
+    branches: [ "main", "develop" ]
 
 jobs:
   test:
-    runs-on: self-hosted
+    runs-on: self-hosted # This job runs on a self-hosted runner
     strategy:
       matrix:
         python-version: ["3.10", "3.11"]
