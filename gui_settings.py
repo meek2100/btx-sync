@@ -159,6 +159,9 @@ class SettingsWindow(customtkinter.CTkToplevel):
         with open(CONFIG_FILE_NAME, "w") as f:
             json.dump(config, f, indent=4)
 
+        # ADDED: Provide visual feedback to the user that the save was successful.
+        messagebox.showinfo("Success", "Settings have been saved successfully.")
+
     def load_settings(self):
         try:
             with open(CONFIG_FILE_NAME, "r") as f:

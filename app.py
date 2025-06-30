@@ -1,5 +1,4 @@
 # app.py
-
 import customtkinter
 import json
 import keyring
@@ -7,11 +6,14 @@ import threading
 import tkinter  # Use this for tkinter.Menu and tkinter.TclError
 
 from pathlib import Path
+from PIL import Image
+from customtkinter import CTkImage
 
 # Import from our other modules
 from config import SERVICE_NAME, CONFIG_FILE_NAME
 from gui_settings import SettingsWindow
 from sync_logic import sync_logic_main
+from utils import resource_path
 
 
 class App(customtkinter.CTk):
@@ -20,7 +22,7 @@ class App(customtkinter.CTk):
 
         self.title("Braze-Transifex Sync Tool")
         self.geometry("800x600")
-        self.iconbitmap("assets/icon.ico")
+        self.iconbitmap(resource_path("assets/icon.ico"))
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
@@ -32,14 +34,29 @@ class App(customtkinter.CTk):
         )
         self.run_button.pack(side="left", padx=10, pady=5)
 
-        self.settings_button = customtkinter.CTkButton(
-            self.control_frame,
-            text="Settings",
-            command=self.open_settings,
-            fg_color="transparent",
-            border_width=1,
+        # ADDED: Load the icon image for the button
+        self.more_icon = CTkImage(
+            light_image=Image.open(
+                resource_path("assets/dots_dark.png")
+            ),  # Dark icon on light background
+            dark_image=Image.open(
+                resource_path("assets/dots_light.png")
+            ),  # Light icon on dark background
+            size=(20, 20),
         )
-        self.settings_button.pack(side="right", padx=10, pady=5)
+
+        # MODIFIED: Changed the settings button into a "more options" icon button
+        self.more_button = customtkinter.CTkButton(
+            self.control_frame,
+            text="",
+            image=self.more_icon,
+            width=28,
+            height=28,
+            fg_color="transparent",
+            border_width=0,
+            command=self.show_more_menu,  # This command now opens the pop-up
+        )
+        self.more_button.pack(side="right", padx=10, pady=5)
 
         self.status_label = customtkinter.CTkLabel(self.control_frame, text="Ready")
         self.status_label.pack(side="left", padx=10)
@@ -49,7 +66,16 @@ class App(customtkinter.CTk):
         )
         self.log_box.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
 
-        # Add Right-Click Context Menu
+        # --- Pop-up Menu Definition ---
+        # ADDED: This creates the pop-up menu that is shown on button click.
+        self.more_menu = tkinter.Menu(self, tearoff=0)
+        self.more_menu.add_command(label="Settings", command=self.open_settings)
+        self.more_menu.add_command(label="Help", command=self.show_help_popup)
+        self.more_menu.add_separator()
+        self.more_menu.add_command(label="Exit", command=self.destroy)
+        # --- End of Pop-up Menu ---
+
+        # Add Right-Click Context Menu for the log box
         self.right_click_menu = tkinter.Menu(
             self.log_box, tearoff=0, background="#2B2B2B", foreground="white"
         )
@@ -62,6 +88,24 @@ class App(customtkinter.CTk):
         self.log_box.bind("<Button-3>", self.show_right_click_menu)
 
         self.settings_window = None
+
+    # ADDED: This new method displays the pop-up menu below the "more" button
+    def show_more_menu(self):
+        """Displays the 'more options' pop-up menu."""
+        x = self.more_button.winfo_rootx()
+        y = self.more_button.winfo_rooty() + self.more_button.winfo_height()
+        self.more_menu.tk_popup(x, y)
+
+    # ADDED: This is a placeholder for a future Help dialog
+    def show_help_popup(self):
+        """Displays a simple help message box."""
+        tkinter.messagebox.showinfo(
+            "Help",
+            "This is the Braze-Transifex Sync Tool.\n\n"
+            "1. Click the '...' button and go to Settings to enter your API keys.\n"
+            "2. Click 'Run Sync' to begin the process.\n\n"
+            "For more details, please see the README file.",
+        )
 
     def show_right_click_menu(self, event):
         """Displays the right-click menu at the cursor's position."""
