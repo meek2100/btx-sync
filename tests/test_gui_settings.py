@@ -37,19 +37,18 @@ def settings_logic(mocker):
 def test_load_settings(settings_logic):
     """Verify that settings are correctly loaded from keyring."""
     settings_logic.backup_checkbox.reset_mock()
-
     keyring.get_password.side_effect = [
-        "test_braze_key",
-        "test_tx_token",
-        "https://rest.braze.com",
-        "my_org",
-        "my_proj",
-        "/my/backup/path",
-        "Debug",
-        "1",  # Backup enabled by default
+        "key",
+        "token",
+        "endpoint",
+        "org",
+        "proj",
+        "/path",
+        "Normal",
+        "1",
     ]
     settings_logic.load_settings()
-    settings_logic.braze_api_key_entry.insert.assert_called_with(0, "test_braze_key")
+    settings_logic.braze_api_key_entry.insert.assert_called_with(0, "key")
     settings_logic.backup_checkbox.select.assert_called_once()
 
 
@@ -63,7 +62,6 @@ def test_save_settings(settings_logic):
 
 def test_save_settings_backup_disabled(settings_logic):
     """Test saving when the backup checkbox is disabled."""
-    settings_logic.braze_api_key_entry.get.return_value = "some_key"
     settings_logic.backup_checkbox.get.return_value = 0  # Test backup disabled
     settings_logic.save_settings()
     keyring.set_password.assert_any_call(SERVICE_NAME, "backup_enabled", "0")

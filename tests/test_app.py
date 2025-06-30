@@ -3,68 +3,70 @@
 import pytest
 from unittest.mock import MagicMock
 
-# The class we want to test
 from app import App
 
 
 @pytest.fixture
 def mock_app(mocker):
-    """
-    This fixture creates a mock instance of the main App class
-    without running its full GUI initialization.
-    """
-    # Prevent the real __init__ from running and creating a GUI window
+    """Creates a mock instance of the App class for testing."""
     mocker.patch.object(App, "__init__", lambda s: None)
-
     app_instance = App()
-
-    # Add mock UI components that the methods expect to find
     app_instance.run_button = MagicMock()
     app_instance.status_label = MagicMock()
-
-    # Mock the get_current_config method to control test inputs
     app_instance.get_current_config = MagicMock()
-
+    app_instance.sync_thread_target = MagicMock()
     return app_instance
 
 
 def test_app_readiness_config_required(mock_app):
-    """
-    Verify the 'Run Sync' button is disabled if API keys are missing.
-    """
-    # ARRANGE
-    # --- FIX: Configure the mock on the 'mock_app' instance ---
-    # We mock the entire config dictionary that the method uses.
+    """Verify the 'Run Sync' button is disabled if API keys are missing."""
     mock_app.get_current_config.return_value = {
         "BRAZE_API_KEY": None,
-        "TRANSIFEX_API_TOKEN": None,
         "LOG_LEVEL": "Normal",
     }
-
-    # ACT
     mock_app.update_readiness_status()
-
-    # ASSERT
-    # Check that the button was disabled and the status label was updated
     mock_app.run_button.configure.assert_called_with(state="disabled")
     mock_app.status_label.configure.assert_called_with(text="Configuration required")
 
 
 def test_app_readiness_is_ready(mock_app):
-    """
-    Verify the 'Run Sync' button is enabled when config is present.
-    """
-    # ARRANGE
-    # --- FIX: Configure the mock on the 'mock_app' instance ---
+    """Verify the 'Run Sync' button is enabled when config is present."""
     mock_app.get_current_config.return_value = {
-        "BRAZE_API_KEY": "a_valid_key",
-        "TRANSIFEX_API_TOKEN": "a_valid_token",
+        "BRAZE_API_KEY": "key",
+        "TRANSIFEX_API_TOKEN": "token",
         "LOG_LEVEL": "Normal",
     }
-
-    # ACT
     mock_app.update_readiness_status()
-
-    # ASSERT
     mock_app.run_button.configure.assert_called_with(state="normal")
     mock_app.status_label.configure.assert_called_with(text="Ready")
+
+
+def test_app_readiness_shows_debug_mode(mock_app):
+    """Verify the status label includes '(Debug)' when log level is set to Debug."""
+    mock_app.get_current_config.return_value = {
+        "BRAZE_API_KEY": "key",
+        "TRANSIFEX_API_TOKEN": "token",
+        "LOG_LEVEL": "Debug",
+    }
+    mock_app.update_readiness_status()
+    mock_app.run_button.configure.assert_called_with(state="normal")
+    mock_app.status_label.configure.assert_called_with(text="Ready (Debug)")
+
+
+def test_start_sync_thread_starts_thread(mock_app, mocker):
+    """Verify that start_sync_thread creates and starts a new thread."""
+    # ARRANGE
+    mock_thread = mocker.patch("threading.Thread")
+
+    # ACT
+    mock_app.start_sync_thread()
+
+    # --- FIX: Assert for the actual call and attribute setting separately ---
+    # 1. Assert that the Thread was created with the correct target
+    mock_thread.assert_called_once_with(target=mock_app.sync_thread_target)
+
+    # 2. Assert that the 'daemon' attribute was set on the created instance
+    assert mock_thread.return_value.daemon is True
+
+    # 3. Assert that the thread was started
+    mock_thread.return_value.start.assert_called_once()
