@@ -33,7 +33,6 @@ class App(customtkinter.CTk):
         )
         self.run_button.pack(side="left", padx=10, pady=5)
 
-        # ADDED: Load the icon image for the button
         self.more_icon = CTkImage(
             light_image=Image.open(
                 resource_path("assets/dots_dark.png")
@@ -44,7 +43,6 @@ class App(customtkinter.CTk):
             size=(20, 20),
         )
 
-        # MODIFIED: Changed the settings button into a "more options" icon button
         self.more_button = customtkinter.CTkButton(
             self.control_frame,
             text="",
@@ -53,11 +51,13 @@ class App(customtkinter.CTk):
             height=28,
             fg_color="transparent",
             border_width=0,
-            command=self.show_more_menu,  # This command now opens the pop-up
+            command=self.show_more_menu,
         )
         self.more_button.pack(side="right", padx=10, pady=5)
 
-        self.status_label = customtkinter.CTkLabel(self.control_frame, text="Ready")
+        self.status_label = customtkinter.CTkLabel(
+            self.control_frame, text="Loading..."
+        )
         self.status_label.pack(side="left", padx=10)
 
         self.log_box = customtkinter.CTkTextbox(
@@ -65,16 +65,12 @@ class App(customtkinter.CTk):
         )
         self.log_box.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
 
-        # --- Pop-up Menu Definition ---
-        # ADDED: This creates the pop-up menu that is shown on button click.
         self.more_menu = tkinter.Menu(self, tearoff=0)
         self.more_menu.add_command(label="Settings", command=self.open_settings)
         self.more_menu.add_command(label="Help", command=self.show_help_popup)
         self.more_menu.add_separator()
         self.more_menu.add_command(label="Exit", command=self.destroy)
-        # --- End of Pop-up Menu ---
 
-        # Add Right-Click Context Menu for the log box
         self.right_click_menu = tkinter.Menu(
             self.log_box, tearoff=0, background="#2B2B2B", foreground="white"
         )
@@ -85,17 +81,74 @@ class App(customtkinter.CTk):
         )
 
         self.log_box.bind("<Button-3>", self.show_right_click_menu)
-
         self.settings_window = None
 
-    # ADDED: This new method displays the pop-up menu below the "more" button
+        # Call the readiness check on startup
+        self.update_readiness_status()
+
+    def get_current_config(self):
+        """
+        Loads all settings from the system keychain and returns them as a dictionary.
+        This method does not validate if the settings are complete.
+        """
+        config = {}
+        # Load all values from keyring, providing defaults where necessary
+        config["BRAZE_API_KEY"] = keyring.get_password(SERVICE_NAME, "braze_api_key")
+        config["TRANSIFEX_API_TOKEN"] = keyring.get_password(
+            SERVICE_NAME, "transifex_api_token"
+        )
+        config["BRAZE_REST_ENDPOINT"] = (
+            keyring.get_password(SERVICE_NAME, "braze_endpoint")
+            or "https://rest.iad-05.braze.com"
+        )
+        config["TRANSIFEX_ORGANIZATION_SLUG"] = (
+            keyring.get_password(SERVICE_NAME, "transifex_org") or "control4"
+        )
+        config["TRANSIFEX_PROJECT_SLUG"] = (
+            keyring.get_password(SERVICE_NAME, "transifex_project") or "braze"
+        )
+        config["BACKUP_PATH"] = keyring.get_password(
+            SERVICE_NAME, "backup_path"
+        ) or str(Path.home() / "Downloads")
+        config["LOG_LEVEL"] = (
+            keyring.get_password(SERVICE_NAME, "log_level") or "Normal"
+        )
+
+        # Load boolean, defaulting to True ("1") if not found
+        backup_enabled_str = keyring.get_password(SERVICE_NAME, "backup_enabled") or "1"
+        config["BACKUP_ENABLED"] = backup_enabled_str == "1"
+        return config
+
+    def update_readiness_status(self):
+        """
+        Checks config and updates UI state, always showing debug status if enabled.
+        """
+        config = self.get_current_config()
+
+        # Step 1: Determine the base readiness status and button state
+        is_ready = all([config.get("BRAZE_API_KEY"), config.get("TRANSIFEX_API_TOKEN")])
+
+        if is_ready:
+            base_status = "Ready"
+            self.run_button.configure(state="normal")
+        else:
+            base_status = "Configuration required"
+            self.run_button.configure(state="disabled")
+
+        # Step 2: Determine if a debug suffix should be added
+        debug_suffix = ""
+        if config.get("LOG_LEVEL") == "Debug":
+            debug_suffix = " (Debug)"
+
+        # Step 3: Combine and set the final status text
+        self.status_label.configure(text=f"{base_status}{debug_suffix}")
+
     def show_more_menu(self):
         """Displays the 'more options' pop-up menu."""
         x = self.more_button.winfo_rootx()
         y = self.more_button.winfo_rooty() + self.more_button.winfo_height()
         self.more_menu.tk_popup(x, y)
 
-    # ADDED: This is a placeholder for a future Help dialog
     def show_help_popup(self):
         """Displays a simple help message box."""
         tkinter.messagebox.showinfo(
@@ -147,7 +200,7 @@ class App(customtkinter.CTk):
             sync_logic_main(config, self.log_message)
 
         self.run_button.configure(state="normal", text="Run Sync")
-        self.status_label.configure(text="Ready")
+        self.update_readiness_status()  # Use the status check method for consistency
         self.log_message("\n")
 
     def start_sync_thread(self):
@@ -158,54 +211,29 @@ class App(customtkinter.CTk):
     def open_settings(self):
         if self.settings_window is None or not self.settings_window.winfo_exists():
             self.settings_window = SettingsWindow(self)
-            self.settings_window.grab_set()
+            self.settings_window.grab_set()  # Make the settings window modal
+
+            # Wait for the settings window to be closed
+            self.wait_window(self.settings_window)
+
+            # Re-check the configuration and update the UI after it closes
+            self.update_readiness_status()
         else:
             self.settings_window.focus()
 
     def load_config_for_sync(self):
-        """Loads all necessary configuration from the system keychain."""
-        try:
-            config = {}
-            # Load all values from keyring, providing defaults where necessary
-            config["BRAZE_API_KEY"] = keyring.get_password(
-                SERVICE_NAME, "braze_api_key"
-            )
-            config["TRANSIFEX_API_TOKEN"] = keyring.get_password(
-                SERVICE_NAME, "transifex_api_token"
-            )
-            config["BRAZE_REST_ENDPOINT"] = (
-                keyring.get_password(SERVICE_NAME, "braze_endpoint")
-                or "https://rest.iad-05.braze.com"
-            )
-            config["TRANSIFEX_ORGANIZATION_SLUG"] = (
-                keyring.get_password(SERVICE_NAME, "transifex_org") or "control4"
-            )
-            config["TRANSIFEX_PROJECT_SLUG"] = (
-                keyring.get_password(SERVICE_NAME, "transifex_project") or "braze"
-            )
-            config["BACKUP_PATH"] = keyring.get_password(
-                SERVICE_NAME, "backup_path"
-            ) or str(Path.home() / "Downloads")
-            config["LOG_LEVEL"] = (
-                keyring.get_password(SERVICE_NAME, "log_level") or "Normal"
-            )
+        """
+        Loads the configuration and validates that essential keys are present for syncing.
+        Returns the config dictionary if valid, otherwise returns None.
+        """
+        config = self.get_current_config()
 
-            # Load boolean, defaulting to True ("1") if not found
-            backup_enabled_str = (
-                keyring.get_password(SERVICE_NAME, "backup_enabled") or "1"
-            )
-            config["BACKUP_ENABLED"] = backup_enabled_str == "1"
+        # Check that essential keys were found
+        if all([config["BRAZE_API_KEY"], config["TRANSIFEX_API_TOKEN"]]):
+            return config
 
-            # Check that essential keys were found
-            if all([config["BRAZE_API_KEY"], config["TRANSIFEX_API_TOKEN"]]):
-                return config
-
-            # If essential keys are missing, return None to trigger error message
-            return None
-
-        except Exception as e:
-            self.log_message(f"Error loading configuration from keychain: {e}")
-            return None
+        # If essential keys are missing, return None
+        return None
 
 
 if __name__ == "__main__":
