@@ -2,7 +2,8 @@
 import customtkinter
 import keyring
 import threading
-import tkinter  # Use this for tkinter.Menu and tkinter.TclError
+import tkinter
+import webbrowser  # Added
 
 from pathlib import Path
 from PIL import Image
@@ -34,12 +35,8 @@ class App(customtkinter.CTk):
         self.run_button.pack(side="left", padx=10, pady=5)
 
         self.more_icon = CTkImage(
-            light_image=Image.open(
-                resource_path("assets/dots_dark.png")
-            ),  # Dark icon on light background
-            dark_image=Image.open(
-                resource_path("assets/dots_light.png")
-            ),  # Light icon on dark background
+            light_image=Image.open(resource_path("assets/dots_dark.png")),
+            dark_image=Image.open(resource_path("assets/dots_light.png")),
             size=(20, 20),
         )
 
@@ -67,7 +64,8 @@ class App(customtkinter.CTk):
 
         self.more_menu = tkinter.Menu(self, tearoff=0)
         self.more_menu.add_command(label="Settings", command=self.open_settings)
-        self.more_menu.add_command(label="Help", command=self.show_help_popup)
+        # --- MODIFIED: The 'Help' command now calls the new function ---
+        self.more_menu.add_command(label="Help", command=self.open_help_file)
         self.more_menu.add_separator()
         self.more_menu.add_command(label="Exit", command=self.destroy)
 
@@ -83,7 +81,6 @@ class App(customtkinter.CTk):
         self.log_box.bind("<Button-3>", self.show_right_click_menu)
         self.settings_window = None
 
-        # Call the readiness check on startup
         self.update_readiness_status()
 
     def get_current_config(self):
@@ -92,13 +89,10 @@ class App(customtkinter.CTk):
         This method does not validate if the settings are complete.
         """
         config = {}
-        # Load all values from keyring
         config["BRAZE_API_KEY"] = keyring.get_password(SERVICE_NAME, "braze_api_key")
         config["TRANSIFEX_API_TOKEN"] = keyring.get_password(
             SERVICE_NAME, "transifex_api_token"
         )
-
-        # MODIFIED: Removed hardcoded default values
         config["BRAZE_REST_ENDPOINT"] = (
             keyring.get_password(SERVICE_NAME, "braze_endpoint") or ""
         )
@@ -108,8 +102,6 @@ class App(customtkinter.CTk):
         config["TRANSIFEX_PROJECT_SLUG"] = (
             keyring.get_password(SERVICE_NAME, "transifex_project") or ""
         )
-
-        # These defaults are fine as they are not company-specific
         config["BACKUP_PATH"] = keyring.get_password(
             SERVICE_NAME, "backup_path"
         ) or str(Path.home() / "Downloads")
@@ -125,23 +117,16 @@ class App(customtkinter.CTk):
         Checks config and updates UI state, always showing debug status if enabled.
         """
         config = self.get_current_config()
-
-        # Step 1: Determine the base readiness status and button state
         is_ready = all([config.get("BRAZE_API_KEY"), config.get("TRANSIFEX_API_TOKEN")])
-
         if is_ready:
             base_status = "Ready"
             self.run_button.configure(state="normal")
         else:
             base_status = "Configuration required"
             self.run_button.configure(state="disabled")
-
-        # Step 2: Determine if a debug suffix should be added
         debug_suffix = ""
         if config.get("LOG_LEVEL") == "Debug":
             debug_suffix = " (Debug)"
-
-        # Step 3: Combine and set the final status text
         self.status_label.configure(text=f"{base_status}{debug_suffix}")
 
     def show_more_menu(self):
@@ -150,15 +135,16 @@ class App(customtkinter.CTk):
         y = self.more_button.winfo_rooty() + self.more_button.winfo_height()
         self.more_menu.tk_popup(x, y)
 
-    def show_help_popup(self):
-        """Displays a simple help message box."""
-        tkinter.messagebox.showinfo(
-            "Help",
-            "This is the btx sync tool.\n\n"
-            "1. Click the '...' button and go to Settings to enter your API keys.\n"
-            "2. Click 'Run Sync' to begin the process.\n\n"
-            "For more details, please see the README file.",
-        )
+    # --- MODIFIED: This function replaces the old show_help_popup ---
+    def open_help_file(self):
+        """Opens the README.md documentation file."""
+        try:
+            readme_path = resource_path("README.md")
+            webbrowser.open(f"file://{readme_path}")
+        except Exception as e:
+            tkinter.messagebox.showerror(
+                "Error", f"Could not open the help file.\n\n{e}"
+            )
 
     def show_right_click_menu(self, event):
         """Displays the right-click menu at the cursor's position."""
@@ -171,12 +157,12 @@ class App(customtkinter.CTk):
             self.clipboard_clear()
             self.clipboard_append(selected_text)
         except tkinter.TclError:
-            pass  # Handles case where no text is selected
+            pass
 
     def select_all_log_text(self):
         """Selects all text in the log box."""
         self.log_box.tag_add("sel", "1.0", "end")
-        return "break"  # Prevents default right-click behavior
+        return "break"
 
     def log_message(self, message):
         self.log_box.configure(state="normal")
@@ -187,11 +173,9 @@ class App(customtkinter.CTk):
     def sync_thread_target(self):
         self.run_button.configure(state="disabled", text="Syncing...")
         self.status_label.configure(text="Running...")
-
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
-
         config = self.load_config_for_sync()
         if not config:
             self.log_message("--- CONFIGURATION ERROR ---")
@@ -199,25 +183,19 @@ class App(customtkinter.CTk):
             self.log_message("Please open Settings and save your credentials.")
         else:
             sync_logic_main(config, self.log_message)
-
         self.run_button.configure(state="normal", text="Run Sync")
-        self.update_readiness_status()  # Use the status check method for consistency
+        self.update_readiness_status()
         self.log_message("\n")
 
     def start_sync_thread(self):
-        thread = threading.Thread(target=self.sync_thread_target)
-        thread.daemon = True
+        thread = threading.Thread(target=self.sync_thread_target, daemon=True)
         thread.start()
 
     def open_settings(self):
         if self.settings_window is None or not self.settings_window.winfo_exists():
             self.settings_window = SettingsWindow(self)
-            self.settings_window.grab_set()  # Make the settings window modal
-
-            # Wait for the settings window to be closed
+            self.settings_window.grab_set()
             self.wait_window(self.settings_window)
-
-            # Re-check the configuration and update the UI after it closes
             self.update_readiness_status()
         else:
             self.settings_window.focus()
@@ -228,18 +206,13 @@ class App(customtkinter.CTk):
         Returns the config dictionary if valid, otherwise returns None.
         """
         config = self.get_current_config()
-
-        # Check that essential keys were found
         if all([config["BRAZE_API_KEY"], config["TRANSIFEX_API_TOKEN"]]):
             return config
-
-        # If essential keys are missing, return None
         return None
 
 
 if __name__ == "__main__":
     customtkinter.set_appearance_mode("System")
     customtkinter.set_default_color_theme("blue")
-
     app = App()
     app.mainloop()

@@ -34,7 +34,7 @@ jobs:
 
     - name: Build the application with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name "btx-sync" --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" --add-data "assets${{ env.pathsep }}assets" app.py
+        pyinstaller --onefile --windowed --name "btx-sync" --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" --add-data "assets${{ env.pathsep }}assets" --add-data "README.md${{ env.pathsep }}." app.py
       env:
         # This sets the correct path separator (';' for Windows, ':' for others) for the --add-data flag
         pathsep: ${{ runner.os == 'Windows' && ';' || ':' }}

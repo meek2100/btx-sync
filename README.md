@@ -12,13 +12,39 @@ A cross-platform desktop application for synchronizing content from Braze to Tra
 -   **Configurable Settings:** An easy-to-use settings panel for configuring API keys, endpoints, and features like TMX backup.
 -   **Robust Logging:** Provides clear feedback on the sync process, with an optional "Debug" mode for detailed API call inspection.
 
-## Setup and Installation
+---
+## For End-Users
+
+### Installation
+
+1.  Go to the **[Releases Page](https://github.com/meek2100/btx-sync/releases)** on GitHub.
+2.  Under the latest release, download the executable file for your operating system (e.g., `btx-sync-Windows.exe` for Windows, `btx-sync-macOS.zip` for macOS).
+3.  For macOS, unzip the downloaded file to get the application. Move the application to your "Applications" folder.
+4.  Run the application.
+
+### Usage
+
+1.  **Configure Settings:**
+    -   On the first launch, click the "..." button in the top right and select "Settings".
+    -   Fill in your Braze and Transifex API keys, endpoints, and slugs. Use the "?" buttons for help.
+    -   Configure your TMX backup preferences.
+    -   Click "Save". Your credentials will be stored securely in your OS keychain.
+
+2.  **Run the Sync:**
+    -   Once configured, the status will show "Ready".
+    -   Click the "Run Sync" button on the main window.
+    -   Monitor the progress in the log window. The process is complete when the status returns to "Ready".
+
+---
+## For Developers
+
+### Development Setup
 
 To run this application from the source code, you'll need Python 3.10 or higher.
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/your-username/braze-transifex-sync.git](https://github.com/your-username/braze-transifex-sync.git)
+    git clone [https://github.com/meek2100/btx-sync.git](https://github.com/meek2100/btx-sync.git)
     cd braze-transifex-sync
     ```
 
@@ -43,34 +69,22 @@ To run this application from the source code, you'll need Python 3.10 or higher.
     pip install -r tests/requirements-dev.txt
     ```
 
-## Usage
-
-1.  **Run the application:**
+5.  **Run the application:**
     ```bash
     python app.py
     ```
 
-2.  **Configure Settings:**
-    -   On the first launch, click the "Settings" button.
-    -   Fill in your Braze and Transifex API keys, endpoints, and slugs. Use the "?" buttons for help.
-    -   Configure your TMX backup preferences.
-    -   Click "Save". Your credentials will be stored securely in your OS keychain.
-
-3.  **Run the Sync:**
-    -   Click the "Run Sync" button on the main window.
-    -   Monitor the progress in the log window. The process is complete when the status returns to "Ready".
-
-## Testing
+### Testing
 
 This project uses `pytest` for unit testing. To run the test suite:
 
-1.  Make sure you have installed the development dependencies (`pip install -r tests/requirements-dev.txt`).
+1.  Make sure you have installed the development dependencies.
 2.  Run pytest from the project's root directory:
     ```bash
     pytest --cov=.
     ```
 
-## Building the Executable
+### Building the Executable
 
 You can package the application into a single, standalone executable using `PyInstaller`.
 
@@ -80,9 +94,7 @@ You can package the application into a single, standalone executable using `PyIn
     ```
 
 2.  **Run the build command:**
+    This command includes the necessary flags to bundle the assets folder and the README file.
     ```bash
-    pyinstaller --onefile --windowed --name "BrazeTransifexSync" --icon="assets/icon.ico" app.py
+    pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.ico" --add-data "assets:assets" --add-data "README.md:." app.py
     ```
-    *(Ensure you have an `icon.ico` file in an `assets` folder or remove the `--icon` flag.)*
-
-3.  The final executable will be located in the `dist` folder.
