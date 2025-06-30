@@ -19,7 +19,7 @@ class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Braze-Transifex Sync Tool")
+        self.title("btx sync")
         self.geometry("800x600")
         self.iconbitmap(resource_path("assets/icon.ico"))
         self.grid_columnconfigure(0, weight=1)
@@ -100,7 +100,7 @@ class App(customtkinter.CTk):
         """Displays a simple help message box."""
         tkinter.messagebox.showinfo(
             "Help",
-            "This is the Braze-Transifex Sync Tool.\n\n"
+            "This is the btx sync tool.\n\n"
             "1. Click the '...' button and go to Settings to enter your API keys.\n"
             "2. Click 'Run Sync' to begin the process.\n\n"
             "For more details, please see the README file.",

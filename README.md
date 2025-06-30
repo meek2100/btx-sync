@@ -1,4 +1,4 @@
-# Braze-Transifex Sync Tool
+# btx sync
 
 A cross-platform desktop application for synchronizing content from Braze to Transifex for translation. This tool allows non-technical users to easily pull content from Braze, upload it to Transifex, and manage translation workflows with a simple graphical user interface (GUI).
 

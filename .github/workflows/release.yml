@@ -34,7 +34,7 @@ jobs:
 
     - name: Build the application with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name "BrazeTransifexSync" --icon="assets/icon.ico" --add-data "assets${{ env.pathsep }}assets" app.py
+        pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.ico" --add-data "assets${{ env.pathsep }}assets" app.py
       env:
         # This sets the correct path separator (';' for Windows, ':' for others) for the --add-data flag
         pathsep: ${{ runner.os == 'Windows' && ';' || ':' }}
@@ -42,7 +42,7 @@ jobs:
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: braze-transifex-sync-${{ matrix.os }}
+        name: btx-sync-${{ matrix.os }}
         path: dist/*
 
   release:
@@ -65,7 +65,7 @@ jobs:
         tag_name: ${{ github.ref }}
         release_name: Release ${{ github.ref }}
         body: |
-          New release of the Braze-Transifex Sync Tool.
+          New release of the btx sync tool.
           Download the executable for your OS below.
         draft: false
         prerelease: false
@@ -76,8 +76,8 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/braze-transifex-sync-windows-latest/BrazeTransifexSync.exe
-        asset_name: BrazeTransifexSync-Windows.exe
+        asset_path: ./artifacts/btx-sync-windows-latest/btx-sync.exe
+        asset_name: btx-sync-Windows.exe
         asset_content_type: application/vnd.microsoft.portable-executable
 
     - name: Upload macOS Asset
@@ -86,6 +86,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./artifacts/braze-transifex-sync-macos-latest/BrazeTransifexSync
-        asset_name: BrazeTransifexSync-macOS
+        asset_path: ./artifacts/btx-sync-macos-latest/btx-sync
+        asset_name: btx-sync-macOS
         asset_content_type: application/octet-stream
