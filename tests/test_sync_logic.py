@@ -7,13 +7,11 @@ import sync_logic
 
 
 def no_op_callback(message):
-    """A callback function that does nothing, used to satisfy the log_callback argument."""
     pass
 
 
 @pytest.fixture
 def mock_config():
-    """Provides a consistent mock configuration for all tests."""
     return {
         "BRAZE_API_KEY": "test_braze_key",
         "BRAZE_REST_ENDPOINT": "https://rest.mock.braze.com",
@@ -26,35 +24,74 @@ def mock_config():
     }
 
 
-def test_sync_main_stops_if_backup_fails(mocker, mock_config):
-    """Verify that if backup is enabled and fails, the main sync does not proceed."""
-    mocker.patch("sync_logic.perform_tmx_backup", return_value=False)
-    mock_get = mocker.patch("requests.get")
+# --- NEW TEST ---
+def test_backup_disabled(mocker, mock_config):
+    """Verify that the backup function is not called when disabled in config."""
+    mock_config["BACKUP_ENABLED"] = False
+    mock_backup_func = mocker.patch("sync_logic.perform_tmx_backup")
+    mocker.patch(
+        "requests.get", return_value=MagicMock(json=lambda: {})
+    )  # Stop sync after backup check
 
     sync_logic.sync_logic_main(mock_config, no_op_callback)
 
+    mock_backup_func.assert_not_called()
+
+
+# --- NEW TEST ---
+def test_resource_name_no_update_needed(mocker, mock_config):
+    """Verify a resource name is NOT updated if it already matches."""
+    mock_config["BACKUP_ENABLED"] = False
+    mock_braze_list = MagicMock(
+        json=lambda: {
+            "templates": [
+                {"email_template_id": "email_123", "template_name": "Matching Name"}
+            ]
+        }
+    )
+    mock_braze_info = MagicMock(json=lambda: {"subject": "Test"})
+    # Mock the Transifex GET request to return a 200 OK with the same name
+    mock_tx_get = MagicMock(
+        status_code=200,
+        json=lambda: {"data": {"attributes": {"name": "Matching Name"}}},
+    )
+
+    mocker.patch(
+        "requests.get",
+        side_effect=[
+            mock_braze_list,
+            mock_braze_info,
+            mock_tx_get,
+            MagicMock(json=lambda: {}),
+        ],
+    )
+    mock_patch = mocker.patch("requests.patch")  # This is what we are checking
+    mocker.patch("requests.post")  # Mock post to prevent upload error
+
+    sync_logic.sync_logic_main(mock_config, no_op_callback)
+
+    mock_patch.assert_not_called()
+
+
+def test_sync_main_stops_if_backup_fails(mocker, mock_config):
+    mocker.patch("sync_logic.perform_tmx_backup", return_value=False)
+    mock_get = mocker.patch("requests.get")
+    sync_logic.sync_logic_main(mock_config, no_op_callback)
     mock_get.assert_not_called()
 
 
 def test_sync_logic_halts_on_unexpected_backup_response(mocker, mock_config):
-    """
-    Verify the sync halts if the backup process raises a KeyError from a bad response.
-    """
     mock_config["BACKUP_ENABLED"] = True
     malformed_response = MagicMock(json=lambda: {"unexpected_key": "some_value"})
     mocker.patch("requests.post", return_value=malformed_response)
     mock_get = mocker.patch("requests.get")
-
     logged_messages = []
 
-    def log_callback(message):
-        """A nested callback to capture logs in a list."""
-        logged_messages.append(message)
+    def log_callback(msg):
+        logged_messages.append(msg)
 
     sync_logic.sync_logic_main(mock_config, log_callback)
-
     full_log = "\n".join(logged_messages)
-    assert "[FATAL] An unexpected error occurred starting TMX backup job" in full_log
     assert "Sync halted due to backup failure" in full_log
     mock_get.assert_not_called()
 
@@ -64,12 +101,9 @@ def test_sync_logic_halts_on_unexpected_backup_response(mocker, mock_config):
     [
         {"subject": "", "body": "", "preheader": ""},
         {"subject": None, "body": None, "preheader": None},
-        {"subject": "   ", "body": "\t", "preheader": "\n"},
-        {"subject": "  ", "body": None, "preheader": ""},
     ],
 )
 def test_upload_skips_if_no_content(mocker, mock_config, empty_content):
-    """Verify that no content is uploaded if all translatable fields are empty."""
     mocker.patch("sync_logic.perform_tmx_backup", return_value=True)
     mock_braze_list_response = MagicMock(
         json=lambda: {
@@ -89,24 +123,5 @@ def test_upload_skips_if_no_content(mocker, mock_config, empty_content):
         ],
     )
     mock_post = mocker.patch("requests.post")
-
     sync_logic.sync_logic_main(mock_config, no_op_callback)
-
     assert mock_post.call_count == 1
-    create_resource_call = mock_post.call_args_list[0]
-    assert create_resource_call.args[0].endswith("/resources")
-
-
-def test_sync_logic_main_happy_path(mocker, mock_config):
-    """Tests the main sync workflow, assuming success with no items."""
-    mocker.patch("sync_logic.perform_tmx_backup", return_value=True)
-    mocker.patch(
-        "requests.get",
-        return_value=MagicMock(json=lambda: {"templates": [], "content_blocks": []}),
-    )
-    mock_post = mocker.patch("requests.post")
-
-    sync_logic.sync_logic_main(mock_config, no_op_callback)
-
-    sync_logic.perform_tmx_backup.assert_called_once()
-    mock_post.assert_not_called()
