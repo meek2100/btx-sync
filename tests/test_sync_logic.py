@@ -56,13 +56,9 @@ def test_sync_logic_halts_on_unexpected_backup_response(mocker, mock_config):
 @pytest.mark.parametrize(
     "empty_content",
     [
-        {"subject": "", "body": "", "preheader": ""},  # Tests empty strings
-        {"subject": None, "body": None, "preheader": None},  # Tests None values
-        {
-            "subject": "   ",
-            "body": "\t",
-            "preheader": "\n",
-        },  # Tests whitespace-only strings
+        {"subject": "", "body": "", "preheader": ""},
+        {"subject": None, "body": None, "preheader": None},
+        {"subject": "   ", "body": "\t", "preheader": "\n"},
     ],
 )
 def test_upload_skips_if_no_content(mocker, mock_config, empty_content):
@@ -109,6 +105,7 @@ def test_resource_name_no_update_needed(mocker, mock_config):
             ]
         }
     )
+    mock_braze_info = MagicMock(json=lambda: {"subject": "Test"})
     mock_tx_get = MagicMock(
         status_code=200,
         json=lambda: {"data": {"attributes": {"name": "Matching Name"}}},
@@ -117,7 +114,7 @@ def test_resource_name_no_update_needed(mocker, mock_config):
         "requests.get",
         side_effect=[
             mock_braze_list,
-            MagicMock(json=lambda: {}),
+            mock_braze_info,
             mock_tx_get,
             MagicMock(json=lambda: {}),
         ],
@@ -154,9 +151,12 @@ def test_sync_handles_httperror(mocker, mock_config):
     """Test that the main sync logic catches and logs an HTTPError."""
     mock_config["BACKUP_ENABLED"] = False
     http_error = requests.exceptions.HTTPError("401 Unauthorized")
-    http_error.response = MagicMock(status_code=401, text="Invalid API Key")
+    mock_response = MagicMock(status_code=401, text="Invalid API Key")
+    mock_response.json.return_value = {"error": "Invalid API Key"}
+    http_error.response = mock_response
     http_error.request = MagicMock(url="http://mock.braze.com/api")
     mocker.patch("requests.get", side_effect=http_error)
+
     logged_messages = []
 
     def log_callback(message):
