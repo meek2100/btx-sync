@@ -32,23 +32,25 @@ def mock_config(tmp_path):
 def test_fetch_braze_list_pagination(mocker, mock_config):
     """Verify that the fetch_braze_list function correctly handles pagination."""
     mock_config["BACKUP_ENABLED"] = False
-    page1 = {"templates": [{"email_template_id": "id1"}] * 100}
-    page2 = {"templates": [{"email_template_id": "id2"}] * 50}
-    page3 = {"templates": []}
+    page1 = {"templates": [{"email_template_id": "id1"}] * 100}  # Full page
+    page2 = {
+        "templates": [{"email_template_id": "id2"}] * 50
+    }  # Partial page, should stop loop
 
+    # --- FIX: The side_effect list is corrected to match the actual calls made ---
     mock_get = mocker.patch(
         "requests.get",
         side_effect=[
             MagicMock(json=lambda: page1),
-            MagicMock(json=lambda: page2),
-            MagicMock(json=lambda: page3),
-            MagicMock(json=lambda: {"content_blocks": []}),
+            MagicMock(json=lambda: page2),  # The loop will break after this call
+            MagicMock(json=lambda: {"content_blocks": []}),  # For the second list call
         ],
     )
     mocker.patch("requests.post")
 
     sync_logic.sync_logic_main(mock_config, no_op_callback)
 
+    # --- FIX: The expected_calls list is corrected to match the application's behavior ---
     expected_calls = [
         call(
             "https://rest.mock.braze.com/templates/email/list?limit=100",
@@ -58,16 +60,15 @@ def test_fetch_braze_list_pagination(mocker, mock_config):
             "https://rest.mock.braze.com/templates/email/list?limit=100&offset=100",
             headers={"Authorization": "Bearer test_braze_key"},
         ),
-        call(
-            "https://rest.mock.braze.com/templates/email/list?limit=100&offset=150",
-            headers={"Authorization": "Bearer test_braze_key"},
-        ),
+        # The call with offset=150 is correctly NOT made.
         call(
             "https://rest.mock.braze.com/content_blocks/list?limit=100",
             headers={"Authorization": "Bearer test_braze_key"},
         ),
     ]
     mock_get.assert_has_calls(expected_calls, any_order=False)
+    # The total number of GET calls should be 3
+    assert mock_get.call_count == 3
 
 
 def test_sync_main_stops_if_backup_fails(mocker, mock_config):
@@ -240,36 +241,27 @@ def test_perform_tmx_backup_job_fails(mocker, mock_config):
 
 def test_perform_tmx_backup_timeout(mocker, mock_config):
     """Verify that the TMX backup polling correctly times out."""
-    # ARRANGE
     mocker.patch(
         "requests.post",
         return_value=MagicMock(json=lambda: {"data": {"id": "job_123"}}),
     )
-    # Mock the status check to always return 'pending'
     mocker.patch(
         "requests.get",
         return_value=MagicMock(
             json=lambda: {"data": {"attributes": {"status": "pending"}}}
         ),
     )
-    # Mock time.time to simulate a timeout
-    mocker.patch(
-        "time.time", side_effect=[100, 101, 102, 103, 104, 500]
-    )  # Last call exceeds timeout
-    mocker.patch("time.sleep")  # Prevent test from actually sleeping
+    mocker.patch("time.time", side_effect=[100, 101, 102, 103, 104, 500])
+    mocker.patch("time.sleep")
 
-    # ACT
     result = sync_logic.perform_tmx_backup(mock_config, {}, AppLogger(no_op_callback))
 
-    # ASSERT
     assert result is False
 
 
 def test_upload_source_content_success(mocker, mock_config):
     """Verify that a successful upload calls the Transifex API correctly."""
-    # ARRANGE
     mock_config["BACKUP_ENABLED"] = False
-    # Mock the list call to return one template
     mock_braze_list = MagicMock(
         json=lambda: {
             "templates": [
@@ -277,9 +269,7 @@ def test_upload_source_content_success(mocker, mock_config):
             ]
         }
     )
-    # Mock the details call to return content
     mock_braze_info = MagicMock(json=lambda: {"subject": "Hello", "body": "World"})
-    # Mock the Transifex resource check
     mock_tx_get = MagicMock(status_code=404)
     mocker.patch(
         "requests.get",
@@ -290,17 +280,11 @@ def test_upload_source_content_success(mocker, mock_config):
             MagicMock(json=lambda: {}),
         ],
     )
-
-    # This is the call we are verifying
     mock_post = mocker.patch("requests.post")
 
-    # ACT
     sync_logic.sync_logic_main(mock_config, no_op_callback)
 
-    # ASSERT
-    # The first POST creates the resource, the second uploads the content.
     assert mock_post.call_count == 2
-    # Check the payload of the second call
     upload_call_args = mock_post.call_args_list[1]
     upload_payload = json.loads(upload_call_args.kwargs["data"])
 
