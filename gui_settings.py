@@ -7,12 +7,17 @@ from tkinter import messagebox, filedialog
 from pathlib import Path
 
 from config import SERVICE_NAME
+from utils import resource_path
 
 
 class SettingsWindow(customtkinter.CTkToplevel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.title("Settings")
+
+        # ADDED: Set the window icon to match the main application
+        self.iconbitmap(resource_path("assets/icon.ico"))
+
         self.geometry("600x600")
 
         self.grid_columnconfigure(1, weight=1)
@@ -91,12 +96,11 @@ class SettingsWindow(customtkinter.CTkToplevel):
             0, weight=1
         )  # Make left column expandable
 
-        # ADDED: The "Reset to Defaults" button
         self.reset_button = customtkinter.CTkButton(
             self.button_frame,
             text="Reset to Defaults",
             command=self.confirm_and_reset,
-            fg_color="#D32F2F",  # A distinct color for a destructive action
+            fg_color="#D32F2F",
             hover_color="#B71C1C",
         )
         self.reset_button.pack(side="left", padx=(0, 10))
