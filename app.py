@@ -92,29 +92,30 @@ class App(customtkinter.CTk):
         This method does not validate if the settings are complete.
         """
         config = {}
-        # Load all values from keyring, providing defaults where necessary
+        # Load all values from keyring
         config["BRAZE_API_KEY"] = keyring.get_password(SERVICE_NAME, "braze_api_key")
         config["TRANSIFEX_API_TOKEN"] = keyring.get_password(
             SERVICE_NAME, "transifex_api_token"
         )
+
+        # MODIFIED: Removed hardcoded default values
         config["BRAZE_REST_ENDPOINT"] = (
-            keyring.get_password(SERVICE_NAME, "braze_endpoint")
-            or "https://rest.iad-05.braze.com"
+            keyring.get_password(SERVICE_NAME, "braze_endpoint") or ""
         )
         config["TRANSIFEX_ORGANIZATION_SLUG"] = (
-            keyring.get_password(SERVICE_NAME, "transifex_org") or "control4"
+            keyring.get_password(SERVICE_NAME, "transifex_org") or ""
         )
         config["TRANSIFEX_PROJECT_SLUG"] = (
-            keyring.get_password(SERVICE_NAME, "transifex_project") or "braze"
+            keyring.get_password(SERVICE_NAME, "transifex_project") or ""
         )
+
+        # These defaults are fine as they are not company-specific
         config["BACKUP_PATH"] = keyring.get_password(
             SERVICE_NAME, "backup_path"
         ) or str(Path.home() / "Downloads")
         config["LOG_LEVEL"] = (
             keyring.get_password(SERVICE_NAME, "log_level") or "Normal"
         )
-
-        # Load boolean, defaulting to True ("1") if not found
         backup_enabled_str = keyring.get_password(SERVICE_NAME, "backup_enabled") or "1"
         config["BACKUP_ENABLED"] = backup_enabled_str == "1"
         return config

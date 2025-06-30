@@ -187,7 +187,7 @@ class SettingsWindow(customtkinter.CTkToplevel):
 
     def load_settings(self):
         """Loads all settings from the system keychain after clearing current values."""
-        # --- ADDED: Clear all existing fields before loading ---
+        # --- Clear all existing fields before loading ---
         entry_widgets = [
             self.braze_api_key_entry,
             self.transifex_api_token_entry,
@@ -208,19 +208,16 @@ class SettingsWindow(customtkinter.CTkToplevel):
         if tx_token:
             self.transifex_api_token_entry.insert(0, tx_token)
 
-        # Load other settings with defaults
-        braze_endpoint = (
-            keyring.get_password(SERVICE_NAME, "braze_endpoint")
-            or "https://rest.iad-05.braze.com"
-        )
-        tx_org = keyring.get_password(SERVICE_NAME, "transifex_org") or "control4"
-        tx_project = keyring.get_password(SERVICE_NAME, "transifex_project") or "braze"
+        # MODIFIED: Removed hardcoded default values
+        braze_endpoint = keyring.get_password(SERVICE_NAME, "braze_endpoint") or ""
+        tx_org = keyring.get_password(SERVICE_NAME, "transifex_org") or ""
+        tx_project = keyring.get_password(SERVICE_NAME, "transifex_project") or ""
+
+        # These defaults are fine
         backup_path = keyring.get_password(SERVICE_NAME, "backup_path") or str(
             Path.home() / "Downloads"
         )
         log_level = keyring.get_password(SERVICE_NAME, "log_level") or "Normal"
-
-        # Load boolean, defaulting to True ("1") if not found
         backup_enabled = keyring.get_password(SERVICE_NAME, "backup_enabled") or "1"
 
         # Populate UI
