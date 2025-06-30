@@ -4,18 +4,14 @@ import pytest
 from unittest.mock import MagicMock
 import keyring
 
-# We import the original class only to access its methods, not to create it
 from gui_settings import SettingsWindow, SERVICE_NAME
 
 
-# --- A NEW, ROBUST TESTING STRATEGY ---
-# This class is a plain Python object that contains the logic from SettingsWindow
-# but does NOT inherit from any GUI class. This isolates the logic completely.
 class SettingsLogicContainer:
-    # Copy the methods we want to test from the original class
     save_settings = SettingsWindow.save_settings
     load_settings = SettingsWindow.load_settings
     confirm_and_reset = SettingsWindow.confirm_and_reset
+    browse_directory = SettingsWindow.browse_directory
 
 
 @pytest.fixture
@@ -24,17 +20,15 @@ def settings_logic(mocker):
     This fixture provides an instance of our logic-only container class
     and mocks the external keyring library and UI widgets.
     """
-    # Mock the external library functions
     mocker.patch("keyring.get_password", return_value=None)
     mocker.patch("keyring.set_password")
     mocker.patch("keyring.delete_password")
     mocker.patch("tkinter.messagebox.askyesno", return_value=True)
     mocker.patch("tkinter.messagebox.showinfo")
+    mocker.patch("tkinter.filedialog.askdirectory")
 
-    # Create an instance of our simple, logic-only test class
     logic_container = SettingsLogicContainer()
 
-    # Attach mock UI widgets to the instance for the methods to use
     logic_container.braze_api_key_entry = MagicMock()
     logic_container.transifex_api_token_entry = MagicMock()
     logic_container.braze_endpoint_entry = MagicMock()
@@ -67,7 +61,6 @@ def test_load_settings(settings_logic):
     settings_logic.update_checkbox.select.assert_called_once()
 
 
-# --- NEW TEST TO IMPROVE COVERAGE ---
 def test_load_settings_with_disabled_options(settings_logic):
     """Verify that disabled settings are correctly loaded."""
     keyring.get_password.side_effect = ["", "", "", "", "", "", "Debug", "0", "0"]
@@ -98,6 +91,25 @@ def test_reset_settings(settings_logic):
     """Verify that resetting calls delete_password for all known keys."""
     settings_logic.load_settings = MagicMock()
     settings_logic.confirm_and_reset()
-    # --- FIX: The count should be 9 to include 'auto_update_enabled' ---
     assert keyring.delete_password.call_count == 9
     settings_logic.load_settings.assert_called_once()
+
+
+def test_browse_directory(settings_logic, mocker):
+    """Verify that Browse for a directory updates the entry field."""
+    # The variable assignment is removed from the next line
+    mocker.patch("tkinter.filedialog.askdirectory", return_value="/new/test/path")
+
+    settings_logic.browse_directory()
+
+    settings_logic.backup_path_entry.delete.assert_called_once_with(0, "end")
+    settings_logic.backup_path_entry.insert.assert_called_once_with(0, "/new/test/path")
+
+
+def test_confirm_and_reset_cancelled(settings_logic, mocker):
+    """Verify that if user cancels the reset, no keys are deleted."""
+    mocker.patch(
+        "tkinter.messagebox.askyesno", return_value=False
+    )  # Simulate user clicking "No"
+    settings_logic.confirm_and_reset()
+    keyring.delete_password.assert_not_called()

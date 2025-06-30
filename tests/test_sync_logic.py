@@ -29,14 +29,12 @@ def mock_config(tmp_path):
     }
 
 
-# --- NEW TEST TO IMPROVE COVERAGE ---
 def test_fetch_braze_list_pagination(mocker, mock_config):
     """Verify that the fetch_braze_list function correctly handles pagination."""
     mock_config["BACKUP_ENABLED"] = False
-    # Mock two pages of results, followed by an empty page to stop the loop
-    page1 = {"templates": [{"email_template_id": "id1"}] * 100}  # Full page
-    page2 = {"templates": [{"email_template_id": "id2"}] * 50}  # Partial page
-    page3 = {"templates": []}  # Empty page
+    page1 = {"templates": [{"email_template_id": "id1"}] * 100}
+    page2 = {"templates": [{"email_template_id": "id2"}] * 50}
+    page3 = {"templates": []}
 
     mock_get = mocker.patch(
         "requests.get",
@@ -44,14 +42,13 @@ def test_fetch_braze_list_pagination(mocker, mock_config):
             MagicMock(json=lambda: page1),
             MagicMock(json=lambda: page2),
             MagicMock(json=lambda: page3),
-            MagicMock(json=lambda: {"content_blocks": []}),  # For the second list call
+            MagicMock(json=lambda: {"content_blocks": []}),
         ],
     )
-    mocker.patch("requests.post")  # Mock other calls to prevent errors
+    mocker.patch("requests.post")
 
     sync_logic.sync_logic_main(mock_config, no_op_callback)
 
-    # Assert that requests.get was called three times for the templates list
     expected_calls = [
         call(
             "https://rest.mock.braze.com/templates/email/list?limit=100",
