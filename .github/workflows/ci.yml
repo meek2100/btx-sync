@@ -1,13 +1,13 @@
 # .github/workflows/ci.yml
-# This workflow runs tests on every push and pull request to the main branch.
+# This workflow runs tests on every push and pull request to the main and develop branches.
 
 name: Run Tests
 
 on:
   push:
-    branches: [ "main, develop" ]
+    branches: [ "main", "develop" ]
   pull_request:
-    branches: [ "main, develop" ]
+    branches: [ "main", "develop" ]
 
 jobs:
   test:
@@ -24,6 +24,13 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+
+    # --- NEW STEP TO INSTALL TKINTER ---
+    - name: Install Tkinter
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-tk
 
     - name: Install Dependencies
       run: |

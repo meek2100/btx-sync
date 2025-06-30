@@ -2,7 +2,8 @@
 
 import pytest
 import requests
-from unittest.mock import MagicMock
+import json
+from unittest.mock import MagicMock, call
 
 import sync_logic
 from logger import AppLogger
@@ -14,8 +15,8 @@ def no_op_callback(message):
 
 
 @pytest.fixture
-def mock_config():
-    """Provides a consistent mock configuration for all tests."""
+def mock_config(tmp_path):
+    """Provides a mock config and uses a temporary path for backups."""
     return {
         "BRAZE_API_KEY": "test_braze_key",
         "BRAZE_REST_ENDPOINT": "https://rest.mock.braze.com",
@@ -23,9 +24,51 @@ def mock_config():
         "TRANSIFEX_ORGANIZATION_SLUG": "test_org",
         "TRANSIFEX_PROJECT_SLUG": "test_project",
         "BACKUP_ENABLED": True,
-        "BACKUP_PATH": "/fake/path",
+        "BACKUP_PATH": str(tmp_path),
         "LOG_LEVEL": "Debug",
     }
+
+
+def test_fetch_braze_list_pagination(mocker, mock_config):
+    """Verify that the fetch_braze_list function correctly handles pagination."""
+    mock_config["BACKUP_ENABLED"] = False
+    page1 = {"templates": [{"email_template_id": "id1"}] * 100}  # Full page
+    page2 = {
+        "templates": [{"email_template_id": "id2"}] * 50
+    }  # Partial page, should stop loop
+
+    # --- FIX: The side_effect list is corrected to match the actual calls made ---
+    mock_get = mocker.patch(
+        "requests.get",
+        side_effect=[
+            MagicMock(json=lambda: page1),
+            MagicMock(json=lambda: page2),  # The loop will break after this call
+            MagicMock(json=lambda: {"content_blocks": []}),  # For the second list call
+        ],
+    )
+    mocker.patch("requests.post")
+
+    sync_logic.sync_logic_main(mock_config, no_op_callback)
+
+    # --- FIX: The expected_calls list is corrected to match the application's behavior ---
+    expected_calls = [
+        call(
+            "https://rest.mock.braze.com/templates/email/list?limit=100",
+            headers={"Authorization": "Bearer test_braze_key"},
+        ),
+        call(
+            "https://rest.mock.braze.com/templates/email/list?limit=100&offset=100",
+            headers={"Authorization": "Bearer test_braze_key"},
+        ),
+        # The call with offset=150 is correctly NOT made.
+        call(
+            "https://rest.mock.braze.com/content_blocks/list?limit=100",
+            headers={"Authorization": "Bearer test_braze_key"},
+        ),
+    ]
+    mock_get.assert_has_calls(expected_calls, any_order=False)
+    # The total number of GET calls should be 3
+    assert mock_get.call_count == 3
 
 
 def test_sync_main_stops_if_backup_fails(mocker, mock_config):
@@ -141,7 +184,6 @@ def test_perform_tmx_backup_success(mocker, mock_config):
     mocker.patch("requests.get", side_effect=[mock_status, mock_download])
     mocker.patch("builtins.open", mocker.mock_open())
     mocker.patch("pathlib.Path.mkdir")
-
     result = sync_logic.perform_tmx_backup(mock_config, {}, AppLogger(no_op_callback))
     assert result is True
     assert requests.get.call_count == 2
@@ -156,14 +198,12 @@ def test_sync_handles_httperror(mocker, mock_config):
     http_error.response = mock_response
     http_error.request = MagicMock(url="http://mock.braze.com/api")
     mocker.patch("requests.get", side_effect=http_error)
-
     logged_messages = []
 
     def log_callback(message):
         logged_messages.append(message)
 
     sync_logic.sync_logic_main(mock_config, log_callback)
-
     full_log = "\n".join(logged_messages)
     assert "[FATAL] An API error occurred." in full_log
     assert "Status Code: 401" in full_log
@@ -171,7 +211,6 @@ def test_sync_handles_httperror(mocker, mock_config):
 
 def test_sync_handles_connection_error(mocker, mock_config):
     """Test that the main sync logic catches and logs a ConnectionError."""
-    # ARRANGE
     mock_config["BACKUP_ENABLED"] = False
     mocker.patch(
         "requests.get", side_effect=requests.exceptions.ConnectionError("Network down")
@@ -181,29 +220,73 @@ def test_sync_handles_connection_error(mocker, mock_config):
     def log_callback(message):
         logged_messages.append(message)
 
-    # ACT
     sync_logic.sync_logic_main(mock_config, log_callback)
-
-    # ASSERT
     full_log = "\n".join(logged_messages)
     assert "[FATAL] A network connection error occurred." in full_log
 
 
 def test_perform_tmx_backup_job_fails(mocker, mock_config):
     """Test the TMX backup flow when Transifex reports a failed job."""
-    # ARRANGE
     mocker.patch(
         "requests.post",
         return_value=MagicMock(json=lambda: {"data": {"id": "job_123"}}),
     )
-    # Mock the status check to return 'failed'
     mock_status_response = MagicMock(
         json=lambda: {"data": {"attributes": {"status": "failed"}}}
     )
     mocker.patch("requests.get", return_value=mock_status_response)
+    result = sync_logic.perform_tmx_backup(mock_config, {}, AppLogger(no_op_callback))
+    assert result is False
 
-    # ACT
+
+def test_perform_tmx_backup_timeout(mocker, mock_config):
+    """Verify that the TMX backup polling correctly times out."""
+    mocker.patch(
+        "requests.post",
+        return_value=MagicMock(json=lambda: {"data": {"id": "job_123"}}),
+    )
+    mocker.patch(
+        "requests.get",
+        return_value=MagicMock(
+            json=lambda: {"data": {"attributes": {"status": "pending"}}}
+        ),
+    )
+    mocker.patch("time.time", side_effect=[100, 101, 102, 103, 104, 500])
+    mocker.patch("time.sleep")
+
     result = sync_logic.perform_tmx_backup(mock_config, {}, AppLogger(no_op_callback))
 
-    # ASSERT
     assert result is False
+
+
+def test_upload_source_content_success(mocker, mock_config):
+    """Verify that a successful upload calls the Transifex API correctly."""
+    mock_config["BACKUP_ENABLED"] = False
+    mock_braze_list = MagicMock(
+        json=lambda: {
+            "templates": [
+                {"email_template_id": "e123", "template_name": "Test Template"}
+            ]
+        }
+    )
+    mock_braze_info = MagicMock(json=lambda: {"subject": "Hello", "body": "World"})
+    mock_tx_get = MagicMock(status_code=404)
+    mocker.patch(
+        "requests.get",
+        side_effect=[
+            mock_braze_list,
+            mock_braze_info,
+            mock_tx_get,
+            MagicMock(json=lambda: {}),
+        ],
+    )
+    mock_post = mocker.patch("requests.post")
+
+    sync_logic.sync_logic_main(mock_config, no_op_callback)
+
+    assert mock_post.call_count == 2
+    upload_call_args = mock_post.call_args_list[1]
+    upload_payload = json.loads(upload_call_args.kwargs["data"])
+
+    assert upload_payload["data"]["type"] == "resource_strings_async_uploads"
+    assert '"subject": "Hello"' in upload_payload["data"]["attributes"]["content"]

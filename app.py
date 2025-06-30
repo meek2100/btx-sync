@@ -3,17 +3,47 @@ import customtkinter
 import keyring
 import threading
 import tkinter
-import webbrowser  # Added
-
+import webbrowser
 from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
+from pyupdater.client import Client
 
 # Import from our other modules
 from config import SERVICE_NAME
 from gui_settings import SettingsWindow
 from sync_logic import sync_logic_main
 from utils import resource_path
+
+# --- PyUpdater Configuration ---
+APP_VERSION = "1.0.0"
+
+
+class UpdateClientConfig:
+    # IMPORTANT: You must generate your own key and replace this placeholder.
+    # See the "Final Setup Instructions" at the end of the response.
+    PUBLIC_KEY = "PTR0RIH78RCpJFhUZdqPCjnMzW8rQnFpyvKBfua9XQk"
+    APP_NAME = "btx-sync"
+    COMPANY_NAME = "meek2100"
+    UPDATE_URLS = ["https://meek2100.github.io/btx-sync/"]
+
+
+def check_for_updates(log_callback):
+    """Checks for app updates in a background thread and applies them."""
+    client = Client(client_config=UpdateClientConfig(), refresh=True)
+    log_callback("Checking for updates...")
+
+    app_update = client.update_check(UpdateClientConfig.APP_NAME, APP_VERSION)
+
+    if app_update:
+        log_callback(f"Update {app_update.version} found, downloading...")
+        if app_update.download():
+            log_callback("Update downloaded successfully. Restarting application...")
+            app_update.extract_restart()
+        else:
+            log_callback("[ERROR] Update download failed.")
+    else:
+        log_callback("Application is up to date.")
 
 
 class App(customtkinter.CTk):
@@ -64,7 +94,6 @@ class App(customtkinter.CTk):
 
         self.more_menu = tkinter.Menu(self, tearoff=0)
         self.more_menu.add_command(label="Settings", command=self.open_settings)
-        # --- MODIFIED: The 'Help' command now calls the new function ---
         self.more_menu.add_command(label="Help", command=self.open_help_file)
         self.more_menu.add_separator()
         self.more_menu.add_command(label="Exit", command=self.destroy)
@@ -83,10 +112,17 @@ class App(customtkinter.CTk):
 
         self.update_readiness_status()
 
+        # Start update check if enabled
+        config = self.get_current_config()
+        if config.get("AUTO_UPDATE_ENABLED", True):
+            update_thread = threading.Thread(
+                target=check_for_updates, args=(self.log_message,), daemon=True
+            )
+            update_thread.start()
+
     def get_current_config(self):
         """
         Loads all settings from the system keychain and returns them as a dictionary.
-        This method does not validate if the settings are complete.
         """
         config = {}
         config["BRAZE_API_KEY"] = keyring.get_password(SERVICE_NAME, "braze_api_key")
@@ -110,12 +146,14 @@ class App(customtkinter.CTk):
         )
         backup_enabled_str = keyring.get_password(SERVICE_NAME, "backup_enabled") or "1"
         config["BACKUP_ENABLED"] = backup_enabled_str == "1"
+        update_enabled_str = (
+            keyring.get_password(SERVICE_NAME, "auto_update_enabled") or "1"
+        )
+        config["AUTO_UPDATE_ENABLED"] = update_enabled_str == "1"
         return config
 
     def update_readiness_status(self):
-        """
-        Checks config and updates UI state, always showing debug status if enabled.
-        """
+        """Checks config and updates UI state, always showing debug status if enabled."""
         config = self.get_current_config()
         is_ready = all([config.get("BRAZE_API_KEY"), config.get("TRANSIFEX_API_TOKEN")])
         if is_ready:
@@ -135,7 +173,6 @@ class App(customtkinter.CTk):
         y = self.more_button.winfo_rooty() + self.more_button.winfo_height()
         self.more_menu.tk_popup(x, y)
 
-    # --- MODIFIED: This function replaces the old show_help_popup ---
     def open_help_file(self):
         """Opens the README.md documentation file."""
         try:

@@ -25,7 +25,7 @@ A cross-platform desktop application for synchronizing content from Braze to Tra
 ### Usage
 
 1.  **Configure Settings:**
-    -   On the first launch, click the "..." button in the top right and select "Settings".
+    -   On the first launch, click the "⋮" button in the top right and select "Settings".
     -   Fill in your Braze and Transifex API keys, endpoints, and slugs. Use the "?" buttons for help.
     -   Configure your TMX backup preferences.
     -   Click "Save". Your credentials will be stored securely in your OS keychain.

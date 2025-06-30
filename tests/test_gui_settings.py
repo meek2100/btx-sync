@@ -7,36 +7,43 @@ import keyring
 from gui_settings import SettingsWindow, SERVICE_NAME
 
 
-class TestSettings(SettingsWindow):
-    def __init__(self):
-        self.braze_api_key_entry = MagicMock()
-        self.transifex_api_token_entry = MagicMock()
-        self.braze_endpoint_entry = MagicMock()
-        self.transifex_org_slug_entry = MagicMock()
-        self.transifex_project_slug_entry = MagicMock()
-        self.backup_path_entry = MagicMock()
-        self.backup_checkbox = MagicMock()
-        self.log_level_menu = MagicMock()
-        super().load_settings()
+class SettingsLogicContainer:
+    save_settings = SettingsWindow.save_settings
+    load_settings = SettingsWindow.load_settings
+    confirm_and_reset = SettingsWindow.confirm_and_reset
+    browse_directory = SettingsWindow.browse_directory
 
 
 @pytest.fixture
 def settings_logic(mocker):
     """
-    This fixture provides an instance of our logic-only TestSettings class
-    and mocks the external keyring library.
+    This fixture provides an instance of our logic-only container class
+    and mocks the external keyring library and UI widgets.
     """
     mocker.patch("keyring.get_password", return_value=None)
     mocker.patch("keyring.set_password")
     mocker.patch("keyring.delete_password")
     mocker.patch("tkinter.messagebox.askyesno", return_value=True)
     mocker.patch("tkinter.messagebox.showinfo")
-    return TestSettings()
+    mocker.patch("tkinter.filedialog.askdirectory")
+
+    logic_container = SettingsLogicContainer()
+
+    logic_container.braze_api_key_entry = MagicMock()
+    logic_container.transifex_api_token_entry = MagicMock()
+    logic_container.braze_endpoint_entry = MagicMock()
+    logic_container.transifex_org_slug_entry = MagicMock()
+    logic_container.transifex_project_slug_entry = MagicMock()
+    logic_container.backup_path_entry = MagicMock()
+    logic_container.backup_checkbox = MagicMock()
+    logic_container.log_level_menu = MagicMock()
+    logic_container.update_checkbox = MagicMock()
+
+    return logic_container
 
 
 def test_load_settings(settings_logic):
     """Verify that settings are correctly loaded from keyring."""
-    settings_logic.backup_checkbox.reset_mock()
     keyring.get_password.side_effect = [
         "key",
         "token",
@@ -46,25 +53,31 @@ def test_load_settings(settings_logic):
         "/path",
         "Normal",
         "1",
+        "1",
     ]
     settings_logic.load_settings()
     settings_logic.braze_api_key_entry.insert.assert_called_with(0, "key")
     settings_logic.backup_checkbox.select.assert_called_once()
+    settings_logic.update_checkbox.select.assert_called_once()
+
+
+def test_load_settings_with_disabled_options(settings_logic):
+    """Verify that disabled settings are correctly loaded."""
+    keyring.get_password.side_effect = ["", "", "", "", "", "", "Debug", "0", "0"]
+    settings_logic.load_settings()
+    settings_logic.backup_checkbox.deselect.assert_called_once()
+    settings_logic.update_checkbox.deselect.assert_called_once()
+    settings_logic.log_level_menu.set.assert_called_with("Debug")
 
 
 def test_save_settings(settings_logic):
     """Verify that values from the UI entries are correctly saved to keyring."""
     settings_logic.braze_api_key_entry.get.return_value = "saved_braze_key"
     settings_logic.backup_checkbox.get.return_value = 1
+    settings_logic.update_checkbox.get.return_value = 1
     settings_logic.save_settings()
     keyring.set_password.assert_any_call(SERVICE_NAME, "backup_enabled", "1")
-
-
-def test_save_settings_backup_disabled(settings_logic):
-    """Test saving when the backup checkbox is disabled."""
-    settings_logic.backup_checkbox.get.return_value = 0  # Test backup disabled
-    settings_logic.save_settings()
-    keyring.set_password.assert_any_call(SERVICE_NAME, "backup_enabled", "0")
+    keyring.set_password.assert_any_call(SERVICE_NAME, "auto_update_enabled", "1")
 
 
 def test_save_settings_deletes_empty_keys(settings_logic):
@@ -78,5 +91,25 @@ def test_reset_settings(settings_logic):
     """Verify that resetting calls delete_password for all known keys."""
     settings_logic.load_settings = MagicMock()
     settings_logic.confirm_and_reset()
-    assert keyring.delete_password.call_count == 8
+    assert keyring.delete_password.call_count == 9
     settings_logic.load_settings.assert_called_once()
+
+
+def test_browse_directory(settings_logic, mocker):
+    """Verify that Browse for a directory updates the entry field."""
+    # The variable assignment is removed from the next line
+    mocker.patch("tkinter.filedialog.askdirectory", return_value="/new/test/path")
+
+    settings_logic.browse_directory()
+
+    settings_logic.backup_path_entry.delete.assert_called_once_with(0, "end")
+    settings_logic.backup_path_entry.insert.assert_called_once_with(0, "/new/test/path")
+
+
+def test_confirm_and_reset_cancelled(settings_logic, mocker):
+    """Verify that if user cancels the reset, no keys are deleted."""
+    mocker.patch(
+        "tkinter.messagebox.askyesno", return_value=False
+    )  # Simulate user clicking "No"
+    settings_logic.confirm_and_reset()
+    keyring.delete_password.assert_not_called()
