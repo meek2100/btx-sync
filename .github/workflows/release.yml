@@ -95,30 +95,29 @@ jobs:
           python -c "import os; f=open('keystore/timestamp', 'w'); f.write(os.environ['TUF_TIMESTAMP_KEY']); f.close()"
 
           APP_FULL_VERSION="${{ env.APP_FULL_VERSION_ENV }}"
-          APP_NAME="btx-sync"
           echo "Processing application version: $APP_FULL_VERSION"
 
-          # Add the --app-name flag to all commands
-          tufup --app-name "$APP_NAME" targets add "$APP_FULL_VERSION" \
+          # tufup commands will now read the corrected app name from your committed .tufup-repo-config file
+          tufup targets add "$APP_FULL_VERSION" \
             "artifacts/btx-sync-windows-latest/btx-sync.exe" \
             "keystore"
           
-          tufup --app-name "$APP_NAME" targets add "$APP_FULL_VERSION" \
+          tufup targets add "$APP_FULL_VERSION" \
             "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" \
             "keystore"
 
-          tufup --app-name "$APP_NAME" targets add "$APP_FULL_VERSION" \
+          tufup targets add "$APP_FULL_VERSION" \
             "artifacts/btx-sync-ubuntu-latest/btx-sync" \
             "keystore"
           
           echo "Signing targets role..."
-          tufup --app-name "$APP_NAME" sign targets keystore
+          tufup sign targets keystore
 
           echo "Signing snapshot role..."
-          tufup --app-name "$APP_NAME" sign snapshot keystore
+          tufup sign snapshot keystore
 
           echo "Signing timestamp role..."
-          tufup --app-name "$APP_NAME" sign timestamp keystore
+          tufup sign timestamp keystore
       
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')

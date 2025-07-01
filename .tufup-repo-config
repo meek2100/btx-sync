@@ -1,5 +1,5 @@
 {
-    "app_name": "btx sync",
+    "app_name": "btx-sync",
     "app_version_attr": "version.__version__",
     "encrypted_keys": [],
     "expiration_days": {
