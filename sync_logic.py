@@ -170,7 +170,14 @@ def sync_logic_main(
         while True:
             check_for_cancel()
             time.sleep(0.2)
-            url = f"{braze_rest_endpoint}{endpoint}?limit={limit}&offset={offset}"
+
+            # Construct URL without offset for the first page
+            base_url = f"{braze_rest_endpoint}{endpoint}?limit={limit}"
+            if offset > 0:
+                url = f"{base_url}&offset={offset}"
+            else:
+                url = base_url
+
             logger.info(f"Fetching {list_key} list from Braze: offset {offset}")
             response = braze_session.get(url, timeout=30)
             response.raise_for_status()
