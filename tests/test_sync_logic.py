@@ -54,27 +54,59 @@ def mock_session(mocker):
 def test_fetch_braze_list_pagination(mock_session, mock_config):
     """Verify that the fetch_braze_list function correctly handles pagination."""
     mock_config["BACKUP_ENABLED"] = False
-    page1 = {"templates": [{"email_template_id": "id1"}] * 100}
-    page2 = {"templates": [{"email_template_id": "id2"}] * 50}
+    # Mocking 100 templates for page 1, and 50 for page 2
+    page1_templates = [
+        {"email_template_id": f"id1_{i}", "template_name": f"t1_{i}"}
+        for i in range(100)
+    ]
+    page2_templates = [
+        {"email_template_id": f"id2_{i}", "template_name": f"t2_{i}"} for i in range(50)
+    ]
+    page1 = {"templates": page1_templates}
+    page2 = {"templates": page2_templates}
 
-    mock_session.get.side_effect = [
+    # FIX: Extend side_effect to handle all subsequent API calls in sync_logic_main
+    # This prevents the mock from running out of responses.
+    mock_responses = [
+        # 1. Pagination calls for templates
         MagicMock(status_code=200, json=lambda: page1),
         MagicMock(status_code=200, json=lambda: page2),
-        MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
     ]
+    # Add mocks for all detail, Transifex, and content block calls
+    for _ in range(150):  # 100 on page 1, 50 on page 2
+        mock_responses.extend(
+            [
+                MagicMock(status_code=200, json=lambda: {"subject": "Test"}),  # details
+                MagicMock(status_code=404),  # tx resource get
+            ]
+        )
+    # Add mock for content block list call
+    mock_responses.append(
+        MagicMock(status_code=200, json=lambda: {"content_blocks": []})
+    )
+    mock_session.get.side_effect = mock_responses
+
+    # Mock post calls as well
+    mock_session.post.return_value = MagicMock(status_code=201)
 
     sync_logic.sync_logic_main(
         mock_config, no_op_callback, threading.Event(), mock_progress_callback
     )
 
+    # FIX: Update expected calls to match the new client's behavior
     expected_calls = [
-        call("https://rest.mock.braze.com/templates/email/list?limit=100", timeout=30),
+        # The first call now correctly includes offset=0
+        call(
+            "https://rest.mock.braze.com/templates/email/list?limit=100&offset=0",
+            timeout=30,
+        ),
         call(
             "https://rest.mock.braze.com/templates/email/list?limit=100&offset=100",
             timeout=30,
         ),
     ]
-    # Check just the Braze calls for this test
+    # assert_has_calls checks if these calls appear in sequence,
+    # allowing other calls to exist around them.
     mock_session.get.assert_has_calls(expected_calls)
 
 
@@ -141,18 +173,30 @@ def test_resource_name_no_update_needed(mock_session, mock_config):
     """Verify a resource name is NOT updated if it already matches."""
     mock_config["BACKUP_ENABLED"] = False
     templates = [{"email_template_id": "e123", "template_name": "Matching"}]
+
+    # FIX: Provide a complete set of mocks for the entire process
     mock_session.get.side_effect = [
+        # 1. Fetch template list
         MagicMock(status_code=200, json=lambda: {"templates": templates}),
+        # 2. Fetch template details
         MagicMock(status_code=200, json=lambda: {"subject": "Test"}),
+        # 3. Get Transifex resource (found, and name matches)
         MagicMock(
             status_code=200,
             json=lambda: {"data": {"attributes": {"name": "Matching"}}},
         ),
+        # 4. Fetch content block list
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
     ]
+
+    # Mock the POST call for uploading source content
+    mock_session.post.return_value = MagicMock(status_code=202)
+
     sync_logic.sync_logic_main(
         mock_config, no_op_callback, threading.Event(), mock_progress_callback
     )
+
+    # The assertion remains the same: patch should not be called
     mock_session.patch.assert_not_called()
 
 

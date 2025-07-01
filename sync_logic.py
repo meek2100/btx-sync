@@ -5,11 +5,9 @@ import json
 import time
 import threading
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Any
 
-# Import the AppLogger for type hinting
 from logger import AppLogger
-
 from constants import (
     BLOCK_TRANSLATABLE_FIELDS,
     EMAIL_TRANSLATABLE_FIELDS,
@@ -22,6 +20,146 @@ class CancellationError(Exception):
     """Custom exception to signal a user-initiated cancellation."""
 
     pass
+
+
+class BrazeClient:
+    """A client to handle interactions with the Braze API."""
+
+    def __init__(self, api_key: str, endpoint: str, logger: AppLogger):
+        self.session = requests.Session()
+        self.session.headers.update({"Authorization": f"Bearer {api_key}"})
+        self.base_url = endpoint
+        self.logger = logger
+        # A small delay to be respectful to the API.
+        self.api_call_delay = 0.2
+
+    def get_paginated_list(self, endpoint: str, list_key: str) -> list[dict[str, Any]]:
+        """Fetches a complete list of items from a paginated Braze endpoint."""
+        all_items = []
+        offset = 0
+        limit = 100
+        while True:
+            time.sleep(self.api_call_delay)
+            url = f"{self.base_url}{endpoint}?limit={limit}&offset={offset}"
+            self.logger.info(f"Fetching {list_key} from Braze: offset {offset}")
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            items = data.get(list_key, [])
+            if not items:
+                break
+            all_items.extend(items)
+            offset += len(items)
+            if len(items) < limit:
+                break
+        return all_items
+
+    def get_item_details(self, endpoint: str, item_id: str) -> dict[str, Any]:
+        """Fetches detailed information for a single Braze item."""
+        time.sleep(self.api_call_delay)
+        url = f"{self.base_url}{endpoint}?{endpoint.split('/')[-1]}_id={item_id}"
+        self.logger.info(f"  > Fetching details for ID: {item_id}")
+        response = self.session.get(url, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
+
+class TransifexClient:
+    """A client to handle interactions with the Transifex API."""
+
+    def __init__(self, api_token: str, org: str, proj: str, logger: AppLogger):
+        self.session = requests.Session()
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {api_token}",
+                "Content-Type": "application/vnd.api+json",
+            }
+        )
+        self.project_id = f"o:{org}:p:{proj}"
+        self.logger = logger
+
+    def create_or_update_resource(self, slug: str, name: str) -> None:
+        """Ensures a resource exists in Transifex with the correct name."""
+        resource_id = f"{self.project_id}:r:{slug}"
+        url = f"{TRANSIFEX_API_BASE_URL}/resources/{resource_id}"
+        response = self.session.get(url, timeout=30)
+
+        if response.status_code == 404:
+            self.logger.info(f"  > Resource '{slug}' not found. Creating...")
+            self._create_resource(slug, name)
+        elif response.status_code == 200:
+            self._update_resource_name_if_needed(resource_id, name, response.json())
+        else:
+            response.raise_for_status()
+
+    def _create_resource(self, slug: str, name: str) -> None:
+        """Helper to create a new resource."""
+        create_url = f"{TRANSIFEX_API_BASE_URL}/resources"
+        payload = {
+            "data": {
+                "type": "resources",
+                "attributes": {"slug": slug, "name": name},
+                "relationships": {
+                    "project": {"data": {"type": "projects", "id": self.project_id}},
+                    "i18n_format": {
+                        "data": {"type": "i18n_formats", "id": "KEYVALUEJSON"}
+                    },
+                },
+            }
+        }
+        create_response = self.session.post(
+            create_url, data=json.dumps(payload), timeout=30
+        )
+        create_response.raise_for_status()
+        self.logger.info(f"  > Resource '{slug}' created with name '{name}'.")
+
+    def _update_resource_name_if_needed(
+        self, resource_id: str, name: str, details: dict
+    ) -> None:
+        """Helper to update the name of an existing resource."""
+        existing_name = details["data"]["attributes"]["name"]
+        if existing_name != name:
+            self.logger.info(f"  > Updating name for '{resource_id}' to '{name}'...")
+            url = f"{TRANSIFEX_API_BASE_URL}/resources/{resource_id}"
+            patch_payload = {
+                "data": {
+                    "type": "resources",
+                    "id": resource_id,
+                    "attributes": {"name": name},
+                }
+            }
+            patch_response = self.session.patch(
+                url, data=json.dumps(patch_payload), timeout=30
+            )
+            patch_response.raise_for_status()
+            self.logger.info("  > Name updated successfully.")
+        else:
+            self.logger.info(f"  > Resource '{resource_id}' found with correct name.")
+
+    def upload_source_content(self, content_dict: dict, resource_slug: str) -> None:
+        """Uploads a dictionary of source strings to a Transifex resource."""
+        if not content_dict:
+            self.logger.info("  > No content to upload. Skipping.")
+            return
+
+        resource_id = f"{self.project_id}:r:{resource_slug}"
+        url = f"{TRANSIFEX_API_BASE_URL}/resource_strings_async_uploads"
+        payload = {
+            "data": {
+                "type": "resource_strings_async_uploads",
+                "attributes": {
+                    "content": json.dumps(content_dict),
+                    "content_encoding": "text",
+                },
+                "relationships": {
+                    "resource": {"data": {"type": "resources", "id": resource_id}}
+                },
+            }
+        }
+        response = self.session.post(url, data=json.dumps(payload), timeout=30)
+        response.raise_for_status()
+        if response.status_code == 202:
+            self.logger.info(f"  > Upload started for {len(content_dict)} string(s).")
 
 
 def perform_tmx_backup(
@@ -77,8 +215,10 @@ def perform_tmx_backup(
         logger.info("  > Waiting for Transifex to process the file...")
         timeout = time.time() + 300  # 5-minute timeout
         file_content = None
-        poll_interval = 5  # Initial poll interval
-        max_poll_interval = 30  # Maximum poll interval
+        # Start with a 5-second poll, backing off exponentially to a max of 30s.
+        # This is efficient and respects the server's resources.
+        poll_interval = 5
+        max_poll_interval = 30
 
         while time.time() < timeout:
             if cancel_event.is_set():
@@ -87,43 +227,30 @@ def perform_tmx_backup(
             response = transifex_session.get(status_url, timeout=30)
             response.raise_for_status()
 
-            # Check content type header to distinguish JSON status from file content
             content_type = response.headers.get("Content-Type", "")
 
-            if (
-                "application/vnd.api+json" in content_type
-                or "application/json" in content_type
-            ):
-                try:
-                    status_data = response.json()
-                    status = (
-                        status_data.get("data", {}).get("attributes", {}).get("status")
-                    )
+            if "application/vnd.api+json" in content_type:
+                status_data = response.json()
+                status = status_data.get("data", {}).get("attributes", {}).get("status")
 
-                    if status == "completed":
-                        download_url = status_data["data"]["links"]["download"]
-                        logger.info("  > File ready for download.")
-                        tmx_response = requests.get(download_url, timeout=60)
-                        tmx_response.raise_for_status()
-                        file_content = tmx_response.content
-                        break
-                    elif status == "failed":
-                        logger.error("Transifex reported the backup job failed.")
-                        return False
-
-                    logger.debug(
-                        f"Current job status: '{status}'. "
-                        f"Polling again in {poll_interval}s."
-                    )
-                    time.sleep(poll_interval)
-                    poll_interval = min(poll_interval * 2, max_poll_interval)
-
-                except json.JSONDecodeError:
-                    logger.error(
-                        "Received invalid JSON while checking TMX backup status. "
-                        f"Response: {response.text[:200]}..."
-                    )
+                if status == "completed":
+                    download_url = status_data["data"]["links"]["download"]
+                    logger.info("  > File ready for download.")
+                    tmx_response = requests.get(download_url, timeout=60)
+                    tmx_response.raise_for_status()
+                    file_content = tmx_response.content
+                    break
+                elif status == "failed":
+                    logger.error("Transifex reported the backup job failed.")
                     return False
+
+                logger.debug(
+                    f"Current job status: '{status}'. "
+                    f"Polling again in {poll_interval}s."
+                )
+                time.sleep(poll_interval)
+                poll_interval = min(poll_interval * 2, max_poll_interval)
+            # The API may directly return the file if it was cached or processed instantly.
             elif (
                 "text/xml" in content_type or "application/octet-stream" in content_type
             ):
@@ -131,10 +258,7 @@ def perform_tmx_backup(
                 file_content = response.content
                 break
             else:
-                logger.error(
-                    f"Unexpected content type received during TMX backup polling: "
-                    f"'{content_type}'. Response: {response.text[:200]}..."
-                )
+                logger.error(f"Unexpected content type: '{content_type}'.")
                 return False
 
         if file_content is None:
@@ -143,8 +267,7 @@ def perform_tmx_backup(
 
         timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
         filename = (
-            f"backup_{config.get('TRANSIFEX_PROJECT_SLUG')}_"
-            f"all_languages_{timestamp}.tmx"
+            f"backup_{config.get('TRANSIFEX_PROJECT_SLUG')}_all_langs_{timestamp}.tmx"
         )
         filepath = backup_path / filename
         with open(filepath, "wb") as f:
@@ -153,13 +276,12 @@ def perform_tmx_backup(
         return True
 
     except CancellationError:
-        # Re-raise to be caught by the main handler
         raise
     except requests.exceptions.RequestException as e:
         logger.fatal(f"A network error occurred while checking backup status: {e}")
         return False
     except Exception as e:
-        logger.error(f"An unexpected error occurred during TMX backup polling: {e}")
+        logger.error(f"An unexpected error during TMX backup polling: {e}")
         return False
 
 
@@ -169,157 +291,30 @@ def sync_logic_main(
     cancel_event: threading.Event,
     progress_callback: Callable[[str], None],
 ) -> None:
-    """
-    This is the main function that runs the entire sync process.
-    """
+    """The main function that orchestrates the entire sync process."""
     logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
     logger.info("--- Starting Braze to Transifex Sync ---")
 
     def check_for_cancel(message: str = "Working...") -> None:
+        """Helper to update progress and check for user cancellation."""
         progress_callback(message)
         if cancel_event.is_set():
             raise CancellationError("Sync process was cancelled by the user.")
 
-    braze_session = requests.Session()
-    braze_session.headers.update(
-        {"Authorization": f"Bearer {config.get('BRAZE_API_KEY')}"}
-    )
-
-    transifex_session = requests.Session()
-    transifex_session.headers.update(
-        {
-            "Authorization": f"Bearer {config.get('TRANSIFEX_API_TOKEN')}",
-            "Content-Type": "application/vnd.api+json",
-        }
-    )
-
-    def fetch_braze_list(endpoint: str, list_key: str, limit: int = 100) -> list:
-        all_items = []
-        offset = 0
-        braze_rest_endpoint = config.get("BRAZE_REST_ENDPOINT")
-        while True:
-            check_for_cancel(f"Fetching {list_key} (offset {offset})...")
-            time.sleep(0.2)
-
-            # Construct URL without offset for the first page
-            base_url = f"{braze_rest_endpoint}{endpoint}?limit={limit}"
-            if offset > 0:
-                url = f"{base_url}&offset={offset}"
-            else:
-                url = base_url
-
-            logger.info(f"Fetching {list_key} list from Braze: offset {offset}")
-            response = braze_session.get(url, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            items = data.get(list_key, [])
-            if not items:
-                break
-            all_items.extend(items)
-            offset += len(items)
-            if len(items) < limit:
-                break
-        return all_items
-
-    def fetch_braze_item_details(
-        endpoint: str, id_param_name: str, item_id: str
-    ) -> dict:
-        check_for_cancel(f"Fetching details for {id_param_name}: {item_id}...")
-        time.sleep(0.2)
-        braze_rest_endpoint = config.get("BRAZE_REST_ENDPOINT")
-        url = f"{braze_rest_endpoint}{endpoint}?{id_param_name}={item_id}"
-        logger.info(f"  > Fetching details for ID: {item_id}")
-        response = braze_session.get(url, timeout=30)
-        response.raise_for_status()
-        return response.json()
-
-    def create_or_update_transifex_resource(slug: str, name: str) -> None:
-        check_for_cancel(f"Processing resource '{slug}'...")
-        org = config.get("TRANSIFEX_ORGANIZATION_SLUG")
-        proj = config.get("TRANSIFEX_PROJECT_SLUG")
-        transifex_project_id = f"o:{org}:p:{proj}"
-        resource_id = f"{transifex_project_id}:r:{slug}"
-        url = f"{TRANSIFEX_API_BASE_URL}/resources/{resource_id}"
-
-        response = transifex_session.get(url, timeout=30)
-
-        if response.status_code == 404:
-            logger.info(f"  > Resource '{slug}' not found. Creating...")
-            create_url = f"{TRANSIFEX_API_BASE_URL}/resources"
-            payload = {
-                "data": {
-                    "type": "resources",
-                    "attributes": {"slug": slug, "name": name},
-                    "relationships": {
-                        "project": {
-                            "data": {"type": "projects", "id": transifex_project_id}
-                        },
-                        "i18n_format": {
-                            "data": {"type": "i18n_formats", "id": "KEYVALUEJSON"}
-                        },
-                    },
-                }
-            }
-            create_response = transifex_session.post(
-                create_url, data=json.dumps(payload), timeout=30
-            )
-            create_response.raise_for_status()
-            logger.info(f"  > Resource '{slug}' created with name '{name}'.")
-
-        elif response.status_code == 200:
-            existing_name = response.json()["data"]["attributes"]["name"]
-            if existing_name != name:
-                logger.info(f"  > Updating name for '{slug}' to '{name}'...")
-                patch_payload = {
-                    "data": {
-                        "type": "resources",
-                        "id": resource_id,
-                        "attributes": {"name": name},
-                    }
-                }
-                patch_response = transifex_session.patch(
-                    url, data=json.dumps(patch_payload), timeout=30
-                )
-                patch_response.raise_for_status()
-                logger.info("  > Name updated successfully.")
-            else:
-                logger.info(f"  > Resource '{slug}' found with correct name.")
-        else:
-            response.raise_for_status()
-
-    def upload_source_content_to_transifex(
-        content_dict: dict, resource_slug: str
-    ) -> None:
-        check_for_cancel(f"Uploading content for '{resource_slug}'...")
-        if not content_dict:
-            logger.info("  > No content to upload. Skipping.")
-            return
-
-        org = config.get("TRANSIFEX_ORGANIZATION_SLUG")
-        proj = config.get("TRANSIFEX_PROJECT_SLUG")
-        resource_id = f"o:{org}:p:{proj}:r:{resource_slug}"
-        url = f"{TRANSIFEX_API_BASE_URL}/resource_strings_async_uploads"
-        payload = {
-            "data": {
-                "type": "resource_strings_async_uploads",
-                "attributes": {
-                    "content": json.dumps(content_dict),
-                    "content_encoding": "text",
-                },
-                "relationships": {
-                    "resource": {"data": {"type": "resources", "id": resource_id}}
-                },
-            }
-        }
-        response = transifex_session.post(url, data=json.dumps(payload), timeout=30)
-        response.raise_for_status()
-        if response.status_code == 202:
-            logger.info(f"  > Upload started for {len(content_dict)} string(s).")
-
     try:
+        braze = BrazeClient(
+            config["BRAZE_API_KEY"], config["BRAZE_REST_ENDPOINT"], logger
+        )
+        tx = TransifexClient(
+            config["TRANSIFEX_API_TOKEN"],
+            config["TRANSIFEX_ORGANIZATION_SLUG"],
+            config["TRANSIFEX_PROJECT_SLUG"],
+            logger,
+        )
+
         check_for_cancel("Starting sync process...")
         if config.get("BACKUP_ENABLED", False):
-            if not perform_tmx_backup(config, transifex_session, logger, cancel_event):
+            if not perform_tmx_backup(config, tx.session, logger, cancel_event):
                 logger.info("\n--- Sync halted due to backup failure. ---")
                 return
             logger.info("--- TMX Backup complete. Proceeding with sync. ---\n")
@@ -328,45 +323,42 @@ def sync_logic_main(
 
         check_for_cancel("\n[1] Processing Email Templates...")
         logger.info("\n[1] Processing Email Templates...")
-        for template in fetch_braze_list("/templates/email/list", "templates"):
-            check_for_cancel(
-                f"Processing Email Template '{template.get('template_name')}'..."
-            )
+        templates = braze.get_paginated_list("/templates/email/list", "templates")
+        for template in templates:
+            check_for_cancel(f"Email: {template.get('template_name')}")
             template_id = template.get("email_template_id")
+            # The name comes from the 'template_name' key in the list response.
             template_name = template.get("template_name")
             if not template_id or not template_name:
                 continue
             logger.info(f"\nProcessing '{template_name}' (ID: {template_id})...")
-            details = fetch_braze_item_details(
-                "/templates/email/info", "email_template_id", template_id
-            )
-            create_or_update_transifex_resource(slug=template_id, name=template_name)
+            details = braze.get_item_details("/templates/email/info", template_id)
+            # FIX: Use the correct variable 'template_name' here.
+            tx.create_or_update_resource(slug=template_id, name=template_name)
             content = {
                 f: details.get(f)
                 for f in EMAIL_TRANSLATABLE_FIELDS
                 if details.get(f) and str(details.get(f)).strip()
             }
-            upload_source_content_to_transifex(content, resource_slug=template_id)
+            tx.upload_source_content(content, resource_slug=template_id)
 
         check_for_cancel("\n[2] Processing Content Blocks...")
         logger.info("\n[2] Processing Content Blocks...")
-        for block in fetch_braze_list("/content_blocks/list", "content_blocks"):
-            check_for_cancel(f"Processing Content Block '{block.get('name')}'...")
+        blocks = braze.get_paginated_list("/content_blocks/list", "content_blocks")
+        for block in blocks:
+            check_for_cancel(f"Block: {block.get('name')}")
             block_id = block.get("content_block_id")
-            block_name = block.get("name")
-            if not block_id or not block_name:
+            if not block_id:
                 continue
-            logger.info(f"\nProcessing '{block_name}' (ID: {block_id})...")
-            details = fetch_braze_item_details(
-                "/content_blocks/info", "content_block_id", block_id
-            )
-            create_or_update_transifex_resource(slug=block_id, name=block_name)
+            logger.info(f"\nProcessing '{block.get('name')}'...")
+            details = braze.get_item_details("/content_blocks/info", block_id)
+            tx.create_or_update_resource(slug=block_id, name=block.get("name"))
             content = {
                 f: details.get(f)
                 for f in BLOCK_TRANSLATABLE_FIELDS
                 if details.get(f) and str(details.get(f)).strip()
             }
-            upload_source_content_to_transifex(content, resource_slug=block_id)
+            tx.upload_source_content(content, resource_slug=block_id)
 
         logger.info("\n--- Sync Complete! ---")
 
@@ -374,24 +366,18 @@ def sync_logic_main(
         logger.info(f"\n--- {e} ---")
     except requests.exceptions.HTTPError as e:
         logger.fatal("An API error occurred.")
-        if e.request:
-            logger.error(f"Request URL: {e.request.url}")
-            logger.debug(f"Request Headers: {e.request.headers}")
-            if e.request.body:
-                logger.debug(f"Request Body: {e.request.body}")
-        if e.response is not None:
-            logger.error(f"Response Status Code: {e.response.status_code}")
+        if e.request and e.response is not None:
+            logger.error(
+                f"Request to {e.request.url} failed with status {e.response.status_code}"
+            )
             try:
                 error_details = e.response.json()
-                logger.error(
-                    f"Response Error Details: {json.dumps(error_details, indent=2)}"
-                )
+                logger.error(f"Details: {json.dumps(error_details, indent=2)}")
             except json.JSONDecodeError:
                 logger.error(f"Response Content: {e.response.text}")
-            logger.debug(f"Response Headers: {e.response.headers}")
     except requests.exceptions.RequestException as e:
         logger.fatal(f"A network error occurred: {e}")
     except KeyError as e:
-        logger.fatal(f"Received an unexpected API response. Missing expected key: {e}")
+        logger.fatal(f"Unexpected API response. Missing key: {e}")
     except Exception as e:
         logger.fatal(f"An unexpected error occurred: {e}")
