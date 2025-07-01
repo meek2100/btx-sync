@@ -167,7 +167,7 @@ def sync_logic_main(
     config: dict,
     log_callback: Callable[[str], None],
     cancel_event: threading.Event,
-    progress_callback: Callable[[str], None],  # Added progress_callback
+    progress_callback: Callable[[str], None],
 ) -> None:
     """
     This is the main function that runs the entire sync process.
@@ -175,8 +175,8 @@ def sync_logic_main(
     logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
     logger.info("--- Starting Braze to Transifex Sync ---")
 
-    def check_for_cancel(message: str = "Working...") -> None:  # Added message
-        progress_callback(message)  # Call the progress callback
+    def check_for_cancel(message: str = "Working...") -> None:
+        progress_callback(message)
         if cancel_event.is_set():
             raise CancellationError("Sync process was cancelled by the user.")
 
@@ -198,7 +198,7 @@ def sync_logic_main(
         offset = 0
         braze_rest_endpoint = config.get("BRAZE_REST_ENDPOINT")
         while True:
-            check_for_cancel(f"Fetching {list_key} (offset {offset})...")  # Updated
+            check_for_cancel(f"Fetching {list_key} (offset {offset})...")
             time.sleep(0.2)
 
             # Construct URL without offset for the first page
@@ -224,9 +224,7 @@ def sync_logic_main(
     def fetch_braze_item_details(
         endpoint: str, id_param_name: str, item_id: str
     ) -> dict:
-        check_for_cancel(
-            f"Fetching details for {id_param_name}: {item_id}..."
-        )  # Updated
+        check_for_cancel(f"Fetching details for {id_param_name}: {item_id}...")
         time.sleep(0.2)
         braze_rest_endpoint = config.get("BRAZE_REST_ENDPOINT")
         url = f"{braze_rest_endpoint}{endpoint}?{id_param_name}={item_id}"
@@ -236,7 +234,7 @@ def sync_logic_main(
         return response.json()
 
     def create_or_update_transifex_resource(slug: str, name: str) -> None:
-        check_for_cancel(f"Processing resource '{slug}'...")  # Updated
+        check_for_cancel(f"Processing resource '{slug}'...")
         org = config.get("TRANSIFEX_ORGANIZATION_SLUG")
         proj = config.get("TRANSIFEX_PROJECT_SLUG")
         transifex_project_id = f"o:{org}:p:{proj}"
@@ -292,7 +290,7 @@ def sync_logic_main(
     def upload_source_content_to_transifex(
         content_dict: dict, resource_slug: str
     ) -> None:
-        check_for_cancel(f"Uploading content for '{resource_slug}'...")  # Updated
+        check_for_cancel(f"Uploading content for '{resource_slug}'...")
         if not content_dict:
             logger.info("  > No content to upload. Skipping.")
             return
@@ -319,7 +317,7 @@ def sync_logic_main(
             logger.info(f"  > Upload started for {len(content_dict)} string(s).")
 
     try:
-        check_for_cancel("Starting sync process...")  # Initial status update
+        check_for_cancel("Starting sync process...")
         if config.get("BACKUP_ENABLED", False):
             if not perform_tmx_backup(config, transifex_session, logger, cancel_event):
                 logger.info("\n--- Sync halted due to backup failure. ---")
@@ -328,12 +326,12 @@ def sync_logic_main(
         else:
             logger.info("TMX backup is disabled. Skipping.")
 
-        check_for_cancel("\n[1] Processing Email Templates...")  # Updated status
+        check_for_cancel("\n[1] Processing Email Templates...")
         logger.info("\n[1] Processing Email Templates...")
         for template in fetch_braze_list("/templates/email/list", "templates"):
             check_for_cancel(
                 f"Processing Email Template '{template.get('template_name')}'..."
-            )  # Updated status
+            )
             template_id = template.get("email_template_id")
             template_name = template.get("template_name")
             if not template_id or not template_name:
@@ -350,12 +348,10 @@ def sync_logic_main(
             }
             upload_source_content_to_transifex(content, resource_slug=template_id)
 
-        check_for_cancel("\n[2] Processing Content Blocks...")  # Updated status
+        check_for_cancel("\n[2] Processing Content Blocks...")
         logger.info("\n[2] Processing Content Blocks...")
         for block in fetch_braze_list("/content_blocks/list", "content_blocks"):
-            check_for_cancel(
-                f"Processing Content Block '{block.get('name')}'..."
-            )  # Updated status
+            check_for_cancel(f"Processing Content Block '{block.get('name')}'...")
             block_id = block.get("content_block_id")
             block_name = block.get("name")
             if not block_id or not block_name:

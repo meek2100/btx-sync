@@ -1,10 +1,12 @@
+# gui_settings.py
+
 import customtkinter
 import keyring
 import webbrowser
 from tkinter import messagebox, filedialog
 from pathlib import Path
 from typing import Any
-import requests  # Added import
+import requests
 
 from constants import (
     DEFAULT_AUTO_UPDATE_ENABLED,
@@ -12,7 +14,7 @@ from constants import (
     DEFAULT_BACKUP_PATH_NAME,
     DEFAULT_BRAZE_REST_ENDPOINT,
     DEFAULT_LOG_LEVEL,
-    TRANSIFEX_API_BASE_URL,  # Added import
+    TRANSIFEX_API_BASE_URL,
 )
 from config import SERVICE_NAME
 from utils import resource_path

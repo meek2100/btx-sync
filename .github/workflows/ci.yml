@@ -11,7 +11,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest # Confirmed by you as self-hosted (ubuntu-latest)
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.10", "3.11"]
@@ -20,26 +20,25 @@ jobs:
     - name: Checkout code (current branch)
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0 # Needed to fetch full history for base branch comparison if needed
+        fetch-depth: 0
 
-    # --- NEW: Fetch develop branch for comparison ---
+    # Checkout develop into a *separate* and *temporary* directory
+    # and then directly pass its constants.py path to the script
     - name: Checkout develop branch for version comparison
       uses: actions/checkout@v4
       with:
         ref: develop
-        path: develop-branch # Checkout develop into a separate directory
-        fetch-depth: 0 # Not strictly needed for this file copy, but good practice for git operations
-
-    - name: Copy develop constants.py
-      working-directory: ${{ github.workspace }} # Ensure we are at the repo root
-      run: cp develop-branch/constants.py develop_constants.py
+        path: develop-branch-temp # Use a different path name
+        fetch-depth: 0
+        sparse-checkout: true # Enable sparse checkout
+        sparse-checkout-paths: | # Specify only the files needed from develop branch
+          constants.py
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
-    # --- NEW STEP TO INSTALL TKINTER (Existing) ---
     - name: Install Tkinter
       if: runner.os == 'Linux'
       run: |
@@ -52,9 +51,10 @@ jobs:
         pip install -r requirements.txt
         pip install -r tests/requirements-dev.txt
         
-    # --- NEW: Run Version Validation Script ---
+    # Run Version Validation Script, passing the path to the develop branch's constants.py
     - name: Run Version Validation
-      run: python scripts/validate_version.py
+      run: python scripts/validate_version.py develop-branch-temp/constants.py
+      working-directory: ${{ github.workspace }} # Ensure script runs from repo root
 
     - name: Run Tests with Pytest
       run: |

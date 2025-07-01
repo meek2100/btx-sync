@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from app import App
-from logger import AppLogger  # Import AppLogger for type hinting (already correct)
+from logger import AppLogger  # Import AppLogger for type hinting
 
 
 @pytest.fixture

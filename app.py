@@ -15,7 +15,7 @@ from constants import (
     DEFAULT_BACKUP_ENABLED,
     DEFAULT_BACKUP_PATH_NAME,
     DEFAULT_LOG_LEVEL,
-    NEXT_RELEASE_VERSION,  # Added import
+    NEXT_RELEASE_VERSION,
 )
 from config import SERVICE_NAME
 from gui_settings import SettingsWindow
@@ -28,7 +28,7 @@ try:
     from version import __version__ as APP_VERSION  # type: ignore
 except ImportError:
     # Fallback for local development: use constants.py with a fixed '-dev' suffix
-    APP_VERSION = f"{NEXT_RELEASE_VERSION}-dev"  # Now uses NEXT_RELEASE_VERSION + -dev
+    APP_VERSION = f"{NEXT_RELEASE_VERSION}-dev"
 
 # --- Tufup Configuration ---
 APP_NAME = "btx-sync"
@@ -184,9 +184,7 @@ class App(customtkinter.CTk):
     def update_readiness_status(self):
         """Checks config and updates UI state, always showing debug status if enabled."""
         config = self.get_current_config()
-        is_ready = all(
-            [config.get("BRAZE_API_KEY"), config.get("TRANSIFEX_API_TOKEN")]
-        )  # Corrected this key again
+        is_ready = all([config.get("BRAZE_API_KEY"), config.get("TRANSIFEX_API_TOKEN")])
         base_status = "Ready" if is_ready else "Configuration required"
         self.run_button.configure(state="normal" if is_ready else "disabled")
         debug_suffix = " (Debug)" if config.get("LOG_LEVEL") == "Debug" else ""

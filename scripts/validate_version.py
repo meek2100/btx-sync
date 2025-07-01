@@ -5,7 +5,10 @@ import importlib.util
 
 def load_constants_from_path(file_path: Path):
     """Dynamically loads constants from a specified file path."""
-    spec = importlib.util.spec_from_file_location("temp_constants", file_path)
+    # Use a unique module name based on path to prevent conflicts if multiple
+    # versions of constants.py were loaded in a complex scenario
+    module_name = f"temp_constants_{file_path.stem}_{file_path.parent.name}"
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
     if spec is None:
         raise FileNotFoundError(f"Could not find {file_path}")
     module = importlib.util.module_from_spec(spec)
@@ -23,30 +26,32 @@ def parse_version_string(version_str: str) -> tuple:
 
 
 def main():
+    # Expect the path to the develop branch's constants.py as an argument
+    if len(sys.argv) < 2:
+        print("Error: Path to develop branch's constants.py not provided.")
+        sys.exit(1)
+
+    develop_constants_path_arg = Path(sys.argv[1])
+
     try:
-        # Get paths for current and develop branch versions of constants.py
+        # The current branch's constants.py is always at the root of the main checkout
         current_constants_path = Path("constants.py")
-        develop_constants_path = Path(
-            "develop_constants.py"
-        )  # This will be copied by CI
 
         if not current_constants_path.exists():
             print(f"Error: {current_constants_path} not found in current branch.")
             sys.exit(1)
 
-        # If develop_constants.py doesn't exist (e.g., first PR, or main branch)
-        # then we only need to validate the current constants for basic format.
-        # For simplicity, we'll focus on develop-to-develop PRs.
-        if not develop_constants_path.exists():
+        if not develop_constants_path_arg.exists():
             print(
-                "No previous 'develop' branch constants found. "
-                "Skipping version comparison. "
-                "Ensure initial 'develop' version is set correctly."
+                f"Error: Provided develop constants path "
+                f"'{develop_constants_path_arg}' does not exist."
             )
-            sys.exit(0)  # Allow to pass if no base for comparison (e.g., first push)
+            # In a PR context, the develop branch should always exist.
+            # This implies a problem with the checkout path.
+            sys.exit(1)
 
         current_config = load_constants_from_path(current_constants_path)
-        develop_config = load_constants_from_path(develop_constants_path)
+        develop_config = load_constants_from_path(develop_constants_path_arg)
 
         current_next_version = parse_version_string(
             current_config["NEXT_RELEASE_VERSION"]
