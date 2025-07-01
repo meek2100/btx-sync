@@ -7,13 +7,13 @@ import webbrowser
 from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
-from pyupdater.client import Client
+from tufup.client import Client
 
 # Import from our other modules
 from config import SERVICE_NAME
 from gui_settings import SettingsWindow
 from sync_logic import sync_logic_main
-from utils import resource_path, is_production_environment  # Modified import
+from utils import resource_path, is_production_environment
 
 # --- Dynamic Version Configuration ---
 try:
@@ -23,32 +23,35 @@ except ImportError:
     # Fallback for local development
     APP_VERSION = "0.0.0-dev"
 
-
-class UpdateClientConfig:
-    # IMPORTANT: You must generate your own key and replace this placeholder.
-    # See the "Final Setup Instructions" at the end of the response.
-    PUBLIC_KEY = "PTR0RIH78RCpJFhUZdqPCjnMzW8rQnFpyvKBfua9XQk"
-    APP_NAME = "btx-sync"
-    COMPANY_NAME = "meek2100"
-    UPDATE_URLS = ["https://meek2100.github.io/btx-sync/"]
+# --- Tufup Configuration ---
+APP_NAME = "btx-sync"
+UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
 
-def check_for_updates(log_callback):
-    """Checks for app updates in a background thread and applies them."""
-    client = Client(client_config=UpdateClientConfig(), refresh=True)
-    log_callback("Checking for updates...")
+def check_for_updates(log_callback: callable):
+    """Checks for app updates using tufup and applies them."""
+    try:
+        client = Client(
+            app_name=APP_NAME,
+            app_version=APP_VERSION,
+            metadata_base_url=f"{UPDATE_URL}repository/",
+            targets_base_url=f"{UPDATE_URL}repository/targets/",
+        )
+        log_callback("Checking for updates...")
+        new_update = client.check_for_updates()
 
-    app_update = client.update_check(UpdateClientConfig.APP_NAME, APP_VERSION)
-
-    if app_update:
-        log_callback(f"Update {app_update.version} found, downloading...")
-        if app_update.download():
-            log_callback("Update downloaded successfully. Restarting application...")
-            app_update.extract_restart()
+        if new_update:
+            log_callback(f"Update {new_update.version} found, downloading...")
+            if new_update.download_and_install():
+                log_callback("Update successful. Restarting application...")
+                # tufup handles the restart process automatically
+            else:
+                log_callback("[ERROR] Update download or installation failed.")
         else:
-            log_callback("[ERROR] Update download failed.")
-    else:
-        log_callback("Application is up to date.")
+            log_callback("Application is up to date.")
+
+    except Exception as e:
+        log_callback(f"[ERROR] Update check failed: {e}")
 
 
 class App(customtkinter.CTk):
@@ -76,10 +79,8 @@ class App(customtkinter.CTk):
             fg_color="transparent",
             border_width=1,
         )
-        # The cancel button will be packed later when the sync starts.
 
         self.cancel_event = threading.Event()
-        # --- End Button and Event Updates ---
 
         self.more_icon = CTkImage(
             light_image=Image.open(resource_path("assets/dots_dark.png")),
@@ -129,7 +130,6 @@ class App(customtkinter.CTk):
 
         self.update_readiness_status()
 
-        # Start update check only if in production and enabled in settings
         config = self.get_current_config()
         if is_production_environment() and config.get("AUTO_UPDATE_ENABLED", True):
             update_thread = threading.Thread(
@@ -175,15 +175,9 @@ class App(customtkinter.CTk):
         """Checks config and updates UI state, always showing debug status if enabled."""
         config = self.get_current_config()
         is_ready = all([config.get("BRAZE_API_KEY"), config.get("TRANSIFEX_API_TOKEN")])
-        if is_ready:
-            base_status = "Ready"
-            self.run_button.configure(state="normal")
-        else:
-            base_status = "Configuration required"
-            self.run_button.configure(state="disabled")
-        debug_suffix = ""
-        if config.get("LOG_LEVEL") == "Debug":
-            debug_suffix = " (Debug)"
+        base_status = "Ready" if is_ready else "Configuration required"
+        self.run_button.configure(state="normal" if is_ready else "disabled")
+        debug_suffix = " (Debug)" if config.get("LOG_LEVEL") == "Debug" else ""
         self.status_label.configure(text=f"{base_status}{debug_suffix}")
 
     def show_more_menu(self):
@@ -198,9 +192,7 @@ class App(customtkinter.CTk):
             readme_path = resource_path("README.md")
             webbrowser.open(f"file://{readme_path}")
         except Exception as e:
-            tkinter.messagebox.showerror(
-                "Error", f"Could not open the help file.\n\n{e}"
-            )
+            tkinter.messagebox.showerror("Error", f"Could not open help file.\n\n{e}")
 
     def show_right_click_menu(self, event):
         """Displays the right-click menu at the cursor's position."""
@@ -209,9 +201,7 @@ class App(customtkinter.CTk):
     def copy_log_text(self):
         """Copies the selected text from the log box to the clipboard."""
         try:
-            selected_text = self.log_box.get("sel.first", "sel.last")
-            self.clipboard_clear()
-            self.clipboard_append(selected_text)
+            self.clipboard_append(self.log_box.get("sel.first", "sel.last"))
         except tkinter.TclError:
             pass
 
@@ -237,27 +227,22 @@ class App(customtkinter.CTk):
         self.cancel_button.pack(side="left", padx=10, pady=5)
         self.cancel_button.configure(state="normal")
         self.status_label.configure(text="Running...")
-        # ---
-
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
-
         config = self.load_config_for_sync()
-
         try:
-            if not config:
-                self.log_message("--- CONFIGURATION ERROR ---")
-                self.log_message("Could not load all necessary API keys.")
-            else:
+            if config:
                 sync_logic_main(config, self.log_message, self.cancel_event)
+            else:
+                self.log_message("--- CONFIGURATION ERROR ---")
         finally:
             self.cancel_button.pack_forget()
             self.run_button.pack(side="left", padx=10, pady=5)
-            if self.cancel_event.is_set():
-                self.status_label.configure(text="Cancelled")
-            else:
-                self.update_readiness_status()
+            status = "Cancelled" if self.cancel_event.is_set() else None
+            self.update_readiness_status()
+            if status:
+                self.status_label.configure(text=status)
             self.log_message("\n")
 
     def start_sync_thread(self):
@@ -280,9 +265,11 @@ class App(customtkinter.CTk):
         Returns the config dictionary if valid, otherwise returns None.
         """
         config = self.get_current_config()
-        if all([config["BRAZE_API_KEY"], config["TRANSIFEX_API_TOKEN"]]):
-            return config
-        return None
+        return (
+            config
+            if all([config["BRAZE_API_KEY"], config["TRANSIFEX_API_TOKEN"]])
+            else None
+        )
 
 
 if __name__ == "__main__":
