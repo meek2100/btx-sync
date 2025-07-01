@@ -13,10 +13,15 @@ from pyupdater.client import Client
 from config import SERVICE_NAME
 from gui_settings import SettingsWindow
 from sync_logic import sync_logic_main
-from utils import resource_path
+from utils import resource_path, is_production_environment  # Modified import
 
-# --- PyUpdater Configuration ---
-APP_VERSION = "1.0.0"
+# --- Dynamic Version Configuration ---
+try:
+    # This file is created by the build process (see release.yml)
+    from version import __version__ as APP_VERSION
+except ImportError:
+    # Fallback for local development
+    APP_VERSION = "0.0.0-dev"
 
 
 class UpdateClientConfig:
@@ -112,13 +117,15 @@ class App(customtkinter.CTk):
 
         self.update_readiness_status()
 
-        # Start update check if enabled
+        # Start update check only if in production and enabled in settings
         config = self.get_current_config()
-        if config.get("AUTO_UPDATE_ENABLED", True):
+        if is_production_environment() and config.get("AUTO_UPDATE_ENABLED", True):
             update_thread = threading.Thread(
                 target=check_for_updates, args=(self.log_message,), daemon=True
             )
             update_thread.start()
+        elif not is_production_environment():
+            self.log_message("Auto-update check disabled in development mode.")
 
     def get_current_config(self):
         """
