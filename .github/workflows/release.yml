@@ -107,32 +107,29 @@ jobs:
           # We provide 'yes |' for any unexpected interactive prompts.
           
           # Add targets (executables) to the TUF repository.
-          # Format: tufup targets add <app_version> <bundle_dir> <key_dirs> --repository-dir <path>
+          # Format: tufup targets add <app_version> <bundle_dir> <key_dirs>
           tufup targets add "$APP_FULL_VERSION" \
             "artifacts/btx-sync-windows-latest/btx-sync.exe" \
-            "keystore" \
-            --repository-dir repository
+            "keystore"
           
           tufup targets add "$APP_FULL_VERSION" \
             "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" \
-            "keystore" \
-            --repository-dir repository
+            "keystore"
 
           tufup targets add "$APP_FULL_VERSION" \
             "artifacts/btx-sync-ubuntu-latest/btx-sync" \
-            "keystore" \
-            --repository-dir repository
+            "keystore"
           
           # Sign the updated repository metadata roles separately
-          # Format: tufup sign <role_name> <key_dirs> --repository-dir <path>
+          # Format: tufup sign <role_name> <key_dirs>
           echo "Signing targets role..."
-          tufup sign targets keystore --repository-dir repository
+          tufup sign targets keystore
 
           echo "Signing snapshot role..."
-          tufup sign snapshot keystore --repository-dir repository
+          tufup sign snapshot keystore
 
           echo "Signing timestamp role..."
-          tufup sign timestamp keystore --repository-dir repository
+          tufup sign timestamp keystore
         env:
           TUF_ROOT_PRIVATE_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
           TUF_SNAPSHOT_PRIVATE_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
