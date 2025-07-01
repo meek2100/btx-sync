@@ -1,0 +1,28 @@
+{
+ "signatures": [
+  {
+   "keyid": "c692962c54b9ddbffec30209ef488ea55b1a26b0e4727269a496d605ec2b56d1",
+   "sig": "1989c5d4c29ee57f2b66c1666848509dac52813c70602ac6ef39b154a5a5c7b6a9ed4167f9a3515604f73353f277cd70e991d7e81e96782745400acdf92afc0b"
+  }
+ ],
+ "signed": {
+  "_type": "targets",
+  "expires": "2025-07-08T23:50:37Z",
+  "spec_version": "1.0.31",
+  "targets": {
+   "btx-sync-0.0.2.alpha.20250701.gfb1a63d.tar.gz": {
+    "custom": {
+     "tufup": {
+      "required": false
+     },
+     "user": null
+    },
+    "hashes": {
+     "sha256": "fc490b003533d5cab41e2ae60eecd60e5aca36571406cfb1713a0e3d596e0225"
+    },
+    "length": 79148664
+   }
+  },
+  "version": 2
+ }
+}
