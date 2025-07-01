@@ -4,4 +4,4 @@ customtkinter
 requests
 keyring
 Pillow
-pyupdater
+tufup
