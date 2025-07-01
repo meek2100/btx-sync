@@ -36,7 +36,6 @@ keypack.pyu
 build/
 dist/
 *.spec
-version.py
 
 # tufup signing keys
 keystore/

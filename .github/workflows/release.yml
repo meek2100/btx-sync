@@ -25,10 +25,19 @@ jobs:
         with: { python-version: "${{ matrix.python-version }}" }
       - name: Create Version File
         run: |
+          # Read NEXT_RELEASE_VERSION and RELEASE_TYPE from constants.py
+          PYTHON_SCRIPT="from constants import NEXT_RELEASE_VERSION, RELEASE_TYPE; print(f'{NEXT_RELEASE_VERSION}-{RELEASE_TYPE}-$(date +%Y%m%d)-${GITHUB_SHA::7}')"
+          DEV_VERSION=$(python -c "$PYTHON_SCRIPT")
+
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # For tagged releases (e.g., v1.0.0), use the tag name as the version
             VERSION=${{ github.ref_name }}
+          elif [[ "${{ github.ref }}" == refs/heads/develop ]]; then
+            # For develop branch builds, use NEXT_RELEASE_VERSION with RELEASE_TYPE suffix
+            VERSION="${DEV_VERSION}"
           else
-            VERSION="0.0.0-alpha-$(date +%Y%m%d)-${GITHUB_SHA::7}"
+            # Fallback for other branches (e.g., feature branches, should not typically trigger releases)
+            VERSION="0.0.0-dev-$(date +%Y%m%d)-${GITHUB_SHA::7}"
           fi
           echo "__version__ = '${VERSION#v}'" > version.py
         shell: bash
