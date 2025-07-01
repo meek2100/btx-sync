@@ -41,7 +41,9 @@ jobs:
             VERSION="${NEXT_VER}-${REL_TYPE}-${BUILD_DATE}-${SHORT_SHA}"
           else
             # Fallback for other branches (e.g., feature branches, should not typically trigger releases)
-            VERSION="0.0.0-dev-${BUILD_DATE}-${SHORT_SHA}" # Use a generic dev version for other branches
+            BUILD_DATE=$(date +%Y%m%d) # Define BUILD_DATE for fallback path too
+            SHORT_SHA=${GITHUB_SHA::7} # Define SHORT_SHA for fallback path too
+            VERSION="0.0.0-dev-${BUILD_DATE}-${SHORT_SHA}"
           fi
           echo "__version__ = '${VERSION#v}'" > version.py
         shell: bash
@@ -81,13 +83,43 @@ jobs:
         run: |
           pip install tufup
           mkdir -p keystore
-          echo "${{ secrets.TUF_KEYS_JSON }}" > keystore/tuf_keys.json
-          tufup init
-          tufup archive --path artifacts/btx-sync-windows-latest/btx-sync.exe --keystore-dir keystore
-          tufup archive --path artifacts/btx-sync-macos-latest/btx-sync-macOS.zip --keystore-dir keystore
-          tufup archive --path artifacts/btx-sync-ubuntu-latest/btx-sync --keystore-dir keystore
+          
+          # Reconstruct individual private key files from GitHub Secrets
+          # Ensure these secret names match what you created on GitHub
+          echo "${{ secrets.TUF_ROOT_PRIVATE_KEY }}" > keystore/root
+          echo "${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}" > keystore/snapshot
+          echo "${{ secrets.TUF_TARGETS_PRIVATE_KEY }}" > keystore/targets
+          echo "${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}" > keystore/timestamp
+
+          # Ensure the 'repository' directory exists for tufup operations
+          # This is where the generated metadata (root.json, targets.json, etc.) will reside
+          # This assumes you have committed the initial repository/metadata files
+          mkdir -p repository/metadata
+
+          # Add targets (executables) to the TUF repository
+          # These commands will update the metadata files in the 'repository' directory
+          tufup targets add \
+            --path artifacts/btx-sync-windows-latest/btx-sync.exe \
+            --keystore-dir keystore \
+            --repository-dir repository
+          
+          tufup targets add \
+            --path artifacts/btx-sync-macos-latest/btx-sync-macOS.zip \
+            --keystore-dir keystore \
+            --repository-dir repository
+
+          tufup targets add \
+            --path artifacts/btx-sync-ubuntu-latest/btx-sync \
+            --keystore-dir keystore \
+            --repository-dir repository
+          
+          # Sign the updated repository metadata
+          tufup sign --keystore-dir keystore --repository-dir repository
         env:
-          TUF_KEYS_JSON: ${{ secrets.TUF_KEYS_JSON }}
+          TUF_ROOT_PRIVATE_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
+          TUF_SNAPSHOT_PRIVATE_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
+          TUF_TARGETS_PRIVATE_KEY: ${{ secrets.TUF_TARGETS_PRIVATE_KEY }}
+          TUF_TIMESTAMP_PRIVATE_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
       
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
