@@ -369,17 +369,23 @@ def sync_logic_main(
     except requests.exceptions.HTTPError as e:
         logger.fatal("An API error occurred.")
         if e.request:
-            logger.error(f"URL: {e.request.url}")
+            logger.error(f"Request URL: {e.request.url}")
+            logger.debug(f"Request Headers: {e.request.headers}")
+            if e.request.body:
+                logger.debug(f"Request Body: {e.request.body}")
         if e.response is not None:
-            logger.error(f"Status Code: {e.response.status_code}")
+            logger.error(f"Response Status Code: {e.response.status_code}")
             try:
                 error_details = e.response.json()
-                logger.error(f"Response: {json.dumps(error_details, indent=2)}")
+                logger.error(
+                    f"Response Error Details: {json.dumps(error_details, indent=2)}"
+                )
             except json.JSONDecodeError:
-                logger.error(f"Response: {e.response.text}")
+                logger.error(f"Response Content: {e.response.text}")
+            logger.debug(f"Response Headers: {e.response.headers}")
     except requests.exceptions.RequestException as e:
         logger.fatal(f"A network error occurred: {e}")
     except KeyError as e:
-        logger.fatal(f"Received an unexpected API response. Missing key: {e}")
+        logger.fatal(f"Received an unexpected API response. Missing expected key: {e}")
     except Exception as e:
         logger.fatal(f"An unexpected error occurred: {e}")
