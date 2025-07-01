@@ -1,5 +1,3 @@
-# gui_settings.py
-
 import customtkinter
 import keyring
 import webbrowser
@@ -7,6 +5,13 @@ from tkinter import messagebox, filedialog
 from pathlib import Path
 from typing import Any
 
+from constants import (
+    DEFAULT_AUTO_UPDATE_ENABLED,
+    DEFAULT_BACKUP_ENABLED,
+    DEFAULT_BACKUP_PATH_NAME,
+    DEFAULT_BRAZE_REST_ENDPOINT,
+    DEFAULT_LOG_LEVEL,
+)
 from config import SERVICE_NAME
 from utils import resource_path
 
@@ -185,7 +190,9 @@ class SettingsWindow(customtkinter.CTkToplevel):
             0, keyring.get_password(SERVICE_NAME, "transifex_api_token") or ""
         )
         self.braze_endpoint_entry.insert(
-            0, keyring.get_password(SERVICE_NAME, "braze_endpoint") or ""
+            0,
+            keyring.get_password(SERVICE_NAME, "braze_endpoint")
+            or DEFAULT_BRAZE_REST_ENDPOINT,
         )
         self.transifex_org_slug_entry.insert(
             0, keyring.get_password(SERVICE_NAME, "transifex_org") or ""
@@ -196,18 +203,22 @@ class SettingsWindow(customtkinter.CTkToplevel):
         self.backup_path_entry.insert(
             0,
             keyring.get_password(SERVICE_NAME, "backup_path")
-            or str(Path.home() / "Downloads"),
+            or str(Path.home() / DEFAULT_BACKUP_PATH_NAME),
         )
         self.log_level_menu.set(
-            keyring.get_password(SERVICE_NAME, "log_level") or "Normal"
+            keyring.get_password(SERVICE_NAME, "log_level") or DEFAULT_LOG_LEVEL
         )
 
-        if (keyring.get_password(SERVICE_NAME, "backup_enabled") or "1") == "1":
+        backup_enabled_val = keyring.get_password(SERVICE_NAME, "backup_enabled")
+        if (backup_enabled_val or str(int(DEFAULT_BACKUP_ENABLED))) == "1":
             self.backup_checkbox.select()
         else:
             self.backup_checkbox.deselect()
 
-        if (keyring.get_password(SERVICE_NAME, "auto_update_enabled") or "1") == "1":
+        auto_update_enabled_val = keyring.get_password(
+            SERVICE_NAME, "auto_update_enabled"
+        )
+        if (auto_update_enabled_val or str(int(DEFAULT_AUTO_UPDATE_ENABLED))) == "1":
             self.update_checkbox.select()
         else:
             self.update_checkbox.deselect()

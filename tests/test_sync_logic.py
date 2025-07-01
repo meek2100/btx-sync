@@ -17,7 +17,9 @@ def mock_time_sleep(mocker):
 
 
 def no_op_callback(message):
-    """A callback function that does nothing, used to satisfy the log_callback argument."""
+    """A callback function that does nothing, used to satisfy the log_callback
+    argument.
+    """
     pass
 
 
@@ -143,10 +145,16 @@ def test_perform_tmx_backup_success(mocker, mock_config):
     mock_tmx_session.post.return_value = MagicMock(
         status_code=200, json=lambda: {"data": {"id": "job1"}}
     )
-    # This mock will represent the final response which is the file itself
-    mock_file_response = MagicMock(status_code=200, content=b"<tmx></tmx>")
-    # Make it raise the correct error when .json() is called
-    mock_file_response.json.side_effect = json.JSONDecodeError("err", "doc", 0)
+    # This mock will represent the final response which is the file itself.
+    # Set headers to simulate a TMX file download.
+    mock_file_response = MagicMock(
+        status_code=200,
+        content=b"<tmx></tmx>",
+        headers={"Content-Type": "text/xml"},
+    )
+    # Ensure .json() is not called on this response by default,
+    # as we expect file content.
+    mock_file_response.json.side_effect = json.JSONDecodeError("Not JSON", "{}", 0)
     mock_tmx_session.get.return_value = mock_file_response
 
     mocker.patch("builtins.open", mocker.mock_open())

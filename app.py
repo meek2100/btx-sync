@@ -10,6 +10,12 @@ from customtkinter import CTkImage
 from tufup.client import Client
 
 # Import from our other modules
+from constants import (
+    DEFAULT_AUTO_UPDATE_ENABLED,
+    DEFAULT_BACKUP_ENABLED,
+    DEFAULT_BACKUP_PATH_NAME,
+    DEFAULT_LOG_LEVEL,
+)
 from config import SERVICE_NAME
 from gui_settings import SettingsWindow
 from sync_logic import sync_logic_main
@@ -141,7 +147,8 @@ class App(customtkinter.CTk):
 
     def get_current_config(self):
         """
-        Loads all settings from the system keychain and returns them as a dictionary.
+        Loads all settings from the system keychain and returns them as a
+        dictionary.
         """
         config = {}
         config["BRAZE_API_KEY"] = keyring.get_password(SERVICE_NAME, "braze_api_key")
@@ -157,17 +164,19 @@ class App(customtkinter.CTk):
         config["TRANSIFEX_PROJECT_SLUG"] = (
             keyring.get_password(SERVICE_NAME, "transifex_project") or ""
         )
-        config["BACKUP_PATH"] = keyring.get_password(
-            SERVICE_NAME, "backup_path"
-        ) or str(Path.home() / "Downloads")
+        config["BACKUP_PATH"] = keyring.get_password(SERVICE_NAME, "backup_path")
+        if not config["BACKUP_PATH"]:
+            config["BACKUP_PATH"] = str(Path.home() / DEFAULT_BACKUP_PATH_NAME)
         config["LOG_LEVEL"] = (
-            keyring.get_password(SERVICE_NAME, "log_level") or "Normal"
+            keyring.get_password(SERVICE_NAME, "log_level") or DEFAULT_LOG_LEVEL
         )
-        backup_enabled_str = keyring.get_password(SERVICE_NAME, "backup_enabled") or "1"
+        backup_enabled_str = keyring.get_password(
+            SERVICE_NAME, "backup_enabled"
+        ) or str(int(DEFAULT_BACKUP_ENABLED))
         config["BACKUP_ENABLED"] = backup_enabled_str == "1"
-        update_enabled_str = (
-            keyring.get_password(SERVICE_NAME, "auto_update_enabled") or "1"
-        )
+        update_enabled_str = keyring.get_password(
+            SERVICE_NAME, "auto_update_enabled"
+        ) or str(int(DEFAULT_AUTO_UPDATE_ENABLED))
         config["AUTO_UPDATE_ENABLED"] = update_enabled_str == "1"
         return config
 
@@ -261,7 +270,8 @@ class App(customtkinter.CTk):
 
     def load_config_for_sync(self):
         """
-        Loads the configuration and validates that essential keys are present for syncing.
+        Loads the configuration and validates that essential keys are present for
+        syncing.
         Returns the config dictionary if valid, otherwise returns None.
         """
         config = self.get_current_config()

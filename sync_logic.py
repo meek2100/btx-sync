@@ -10,12 +10,11 @@ from typing import Callable
 # Import the AppLogger for type hinting
 from logger import AppLogger
 
-# Define the Transifex API base URL as a constant.
-TRANSIFEX_API_BASE_URL = "https://rest.api.transifex.com"
-
-# Centralize translatable fields for easier maintenance.
-EMAIL_TRANSLATABLE_FIELDS = ["subject", "preheader", "body"]
-BLOCK_TRANSLATABLE_FIELDS = ["content"]
+from constants import (
+    BLOCK_TRANSLATABLE_FIELDS,
+    EMAIL_TRANSLATABLE_FIELDS,
+    TRANSIFEX_API_BASE_URL,
+)
 
 
 # Custom exception to signal a user-initiated cancellation.
@@ -78,6 +77,9 @@ def perform_tmx_backup(
         logger.info("  > Waiting for Transifex to process the file...")
         timeout = time.time() + 300  # 5-minute timeout
         file_content = None
+        poll_interval = 5  # Initial poll interval
+        max_poll_interval = 30  # Maximum poll interval
+
         while time.time() < timeout:
             if cancel_event.is_set():
                 raise CancellationError("Backup process cancelled by user.")
@@ -85,31 +87,55 @@ def perform_tmx_backup(
             response = transifex_session.get(status_url, timeout=30)
             response.raise_for_status()
 
-            try:
-                # First, try to parse the response as JSON
-                status_data = response.json()
-                status = status_data.get("data", {}).get("attributes", {}).get("status")
+            # Check content type header to distinguish JSON status from file content
+            content_type = response.headers.get("Content-Type", "")
 
-                if status == "completed":
-                    download_url = status_data["data"]["links"]["download"]
-                    logger.info("  > File ready for download.")
-                    tmx_response = requests.get(download_url, timeout=60)
-                    tmx_response.raise_for_status()
-                    file_content = tmx_response.content
-                    break
-                elif status == "failed":
-                    logger.error("Transifex reported the backup job failed.")
+            if (
+                "application/vnd.api+json" in content_type
+                or "application/json" in content_type
+            ):
+                try:
+                    status_data = response.json()
+                    status = (
+                        status_data.get("data", {}).get("attributes", {}).get("status")
+                    )
+
+                    if status == "completed":
+                        download_url = status_data["data"]["links"]["download"]
+                        logger.info("  > File ready for download.")
+                        tmx_response = requests.get(download_url, timeout=60)
+                        tmx_response.raise_for_status()
+                        file_content = tmx_response.content
+                        break
+                    elif status == "failed":
+                        logger.error("Transifex reported the backup job failed.")
+                        return False
+
+                    logger.debug(
+                        f"Current job status: '{status}'. "
+                        f"Polling again in {poll_interval}s."
+                    )
+                    time.sleep(poll_interval)
+                    poll_interval = min(poll_interval * 2, max_poll_interval)
+
+                except json.JSONDecodeError:
+                    logger.error(
+                        "Received invalid JSON while checking TMX backup status. "
+                        f"Response: {response.text[:200]}..."
+                    )
                     return False
-
-                logger.debug(f"Current job status: '{status}'. Polling again in 5s.")
-                time.sleep(5)
-
-            except json.JSONDecodeError:
-                # If it's not JSON, assume it's the file content itself.
-                # This handles cases where the status URL redirects to the download.
-                logger.info("  > Received non-JSON response, assuming TMX file.")
+            elif (
+                "text/xml" in content_type or "application/octet-stream" in content_type
+            ):
+                logger.info("  > Received TMX file content directly.")
                 file_content = response.content
                 break
+            else:
+                logger.error(
+                    f"Unexpected content type received during TMX backup polling: "
+                    f"'{content_type}'. Response: {response.text[:200]}..."
+                )
+                return False
 
         if file_content is None:
             logger.error("TMX backup job timed out after 5 minutes.")
