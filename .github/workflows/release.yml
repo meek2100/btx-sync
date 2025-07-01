@@ -4,11 +4,14 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - 'develop' # Trigger on pushes to the develop branch for alpha builds
     tags:
-      - 'v*'
+      - 'v[0-9]+.[0-9]+.[0-9]+*' # Trigger on version tags (e.g., v1.0.0) for production
 
 jobs:
   build:
+    # The build job remains the same, creating executables for all OSes.
     name: Build Executables
     runs-on: ${{ matrix.os }}
     strategy:
@@ -17,26 +20,39 @@ jobs:
         python-version: ["3.10"]
     steps:
       - uses: actions/checkout@v4
+        # Fetch all history to get tags for versioning if needed
+        with:
+          fetch-depth: 0
+          
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "${{ matrix.python-version }}"
+
       - name: Create Version File
         run: |
-          # Strip the 'v' prefix from the git tag (e.g., v1.2.0 -> 1.2.0)
-          VERSION=${{ github.ref_name }}
+          # Use the git tag for production, or create an alpha version for develop
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${{ github.ref_name }}
+          else
+            VERSION="0.0.0-alpha-$(date +%Y%m%d)-${GITHUB_SHA::7}"
+          fi
           echo "__version__ = '${VERSION#v}'" > version.py
         shell: bash
+
       - name: Install dependencies
         run: pip install -r requirements.txt && pip install pyinstaller
+        
       - name: Build the application
         run: |
           pyinstaller --noconfirm --onefile --windowed --name "btx-sync" --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" --add-data "assets${{ env.pathsep }}assets" --add-data "README.md${{ env.pathsep }}." app.py
         env:
           pathsep: ${{ runner.os == 'Windows' && ';' || ':' }}
+          
       - name: Package macOS App
         if: runner.os == 'macOS'
         run: zip -r dist/btx-sync-macOS.zip dist/btx-sync.app
+        
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -45,6 +61,7 @@ jobs:
 
   release:
     name: Process, Release and Deploy
+    # This job only runs if the build job was successful
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -52,21 +69,25 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - name: Install PyUpdater
-        run: pip install pyupdater
+          
       - name: Initialize, Sign, and Process Packages
         run: |
+          pip install pyupdater
           pyupdater init --app-name btx-sync --no-input
           echo "${{ secrets.PYUPDATER_KEYPACK }}" > keypack.pyu
           pyupdater keys --import keypack.pyu
           pyupdater pkg --process --sign artifacts/btx-sync-windows-latest/btx-sync.exe
           pyupdater pkg --process --sign artifacts/btx-sync-macos-latest/btx-sync-macOS.zip
           pyupdater pkg --process --sign artifacts/btx-sync-ubuntu-latest/btx-sync
+        
+      # The following steps ONLY run for production (tagged) releases
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         id: create_release
         uses: actions/create-release@v1
         env:
@@ -75,7 +96,9 @@ jobs:
           tag_name: ${{ github.ref }}
           release_name: Release ${{ github.ref }}
           body: 'Download the application for your OS below.'
+          
       - name: Upload Windows Asset
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
@@ -84,7 +107,9 @@ jobs:
           asset_path: ./artifacts/btx-sync-windows-latest/btx-sync.exe
           asset_name: btx-sync-Windows.exe
           asset_content_type: application/vnd.microsoft.portable-executable
+          
       - name: Upload macOS Asset
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
@@ -93,7 +118,9 @@ jobs:
           asset_path: ./artifacts/btx-sync-macos-latest/btx-sync-macOS.zip
           asset_name: btx-sync-macOS.zip
           asset_content_type: application/zip
+          
       - name: Upload Linux Asset
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
@@ -102,7 +129,9 @@ jobs:
           asset_path: ./artifacts/btx-sync-ubuntu-latest/btx-sync
           asset_name: btx-sync-Linux
           asset_content_type: application/octet-stream
+          
       - name: Deploy Update Files to GitHub Pages
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
