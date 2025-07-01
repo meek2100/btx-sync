@@ -98,28 +98,34 @@ jobs:
           # Ensure the 'repository' directory exists for tufup operations
           mkdir -p repository/metadata
 
-          # Get the version string from the 'build' job's output
-          # APP_FULL_VERSION now comes from the job's env block
+          # Get the version string from the environment variable
+          # APP_FULL_VERSION comes from the job's env block
           echo "Processing application version: $APP_FULL_VERSION_ENV"
 
-          # Add targets (executables) to the TUF repository
+          # Temporarily change directory to 'repository' for tufup commands
+          # This makes all --repository-dir arguments unnecessary and handles metadata implicitly
+          pushd repository
+          
+          # Add targets (executables) to the TUF repository using positional arguments
+          # Format: tufup targets add <app_version> <bundle_dir> <key_dirs>
+          # Note: bundle_dir paths are now relative to the *main workspace*,
+          #       so we need to use a relative path back to 'artifacts'
           tufup targets add "$APP_FULL_VERSION_ENV" \
-            --path artifacts/btx-sync-windows-latest/btx-sync.exe \
-            --keystore-dir keystore \
-            --repository-dir repository
+            "../artifacts/btx-sync-windows-latest/btx-sync.exe" \
+            "../keystore"
           
           tufup targets add "$APP_FULL_VERSION_ENV" \
-            --path artifacts/btx-sync-macos-latest/btx-sync-macOS.zip \
-            --keystore-dir keystore \
-            --repository-dir repository
+            "../artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" \
+            "../keystore"
 
           tufup targets add "$APP_FULL_VERSION_ENV" \
-            --path artifacts/btx-sync-ubuntu-latest/btx-sync \
-            --keystore-dir keystore \
-            --repository-dir repository
+            "../artifacts/btx-sync-ubuntu-latest/btx-sync" \
+            "../keystore"
           
           # Sign the updated repository metadata
-          tufup sign --keystore-dir keystore --repository-dir repository
+          tufup sign "../keystore"
+
+          popd # Change back to original directory
         env:
           TUF_ROOT_PRIVATE_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
           TUF_SNAPSHOT_PRIVATE_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
