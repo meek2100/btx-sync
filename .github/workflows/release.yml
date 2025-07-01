@@ -13,7 +13,6 @@ jobs:
   build:
     name: Build Executables
     runs-on: ${{ matrix.os }}
-    # Define outputs for the build job here
     outputs:
       version: ${{ steps.set_version.outputs.version }}
     strategy:
@@ -29,25 +28,20 @@ jobs:
       - name: Create Version File
         id: set_version
         run: |
-          # Define BUILD_DATE and SHORT_SHA once at the beginning
           BUILD_DATE=$(date +%Y%m%d)
           SHORT_SHA=${GITHUB_SHA::7}
-
-          # Read NEXT_RELEASE_VERSION and RELEASE_TYPE from constants.py
           NEXT_VER=$(python -c "from constants import NEXT_RELEASE_VERSION; print(NEXT_RELEASE_VERSION)")
           REL_TYPE=$(python -c "from constants import RELEASE_TYPE; print(RELEASE_TYPE)") 
           
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${{ github.ref_name }}
           elif [[ "${{ github.ref }}" == refs/heads/develop ]]; then
-            # Use PEP440 compatible pre-release version: major.minor.patch.pre_tag.YYYYMMDD.gSHORT_SHA
             VERSION="${NEXT_VER}.${REL_TYPE}.${BUILD_DATE}.g${SHORT_SHA}" 
           else
-            # Fallback for other branches (e.g., feature branches)
-            VERSION="0.0.0.dev.${BUILD_DATE}.g${SHORT_SHA}" # Use .dev for local/feature branch builds
+            VERSION="0.0.0.dev.${BUILD_DATE}.g${SHORT_SHA}"
           fi
           echo "__version__ = '${VERSION#v}'" > version.py
-          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT # Set version as an output for subsequent steps
+          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
         shell: bash
       - name: Install dependencies
         run: pip install -r requirements.txt && pip install pyinstaller
@@ -73,7 +67,6 @@ jobs:
     name: Process, Release and Deploy
     needs: build
     runs-on: ubuntu-latest
-    # Add environment variables here, populated from the 'build' job's outputs
     env:
       APP_FULL_VERSION_ENV: ${{ needs.build.outputs.version }}
     steps:
@@ -85,56 +78,47 @@ jobs:
         with: { python-version: "3.10" }
 
       - name: Initialize, Sign, and Process Packages with tufup
+        env:
+          # Pass secrets as environment variables to the step
+          TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
+          TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
+          TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_PRIVATE_KEY }}
+          TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
         run: |
           pip install tufup
-          mkdir -p keystore
-          
-          # Reconstruct individual private key files from GitHub Secrets
-          echo "${{ secrets.TUF_ROOT_PRIVATE_KEY }}" > keystore/root
-          echo "${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}" > keystore/snapshot
-          echo "${{ secrets.TUF_TARGETS_PRIVATE_KEY }}" > keystore/targets
-          echo "${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}" > keystore/timestamp
+          mkdir -p keystore repository/targets
 
-          # Ensure the 'repository/metadata' directory exists within the main repo root
-          # This assumes 'repository/' is at the root and metadata is inside it.
-          mkdir -p repository/metadata
+          # Use Python to reliably write secrets to files, avoiding shell issues
+          python -c "import os; f=open('keystore/root', 'w'); f.write(os.environ['TUF_ROOT_KEY']); f.close()"
+          python -c "import os; f=open('keystore/snapshot', 'w'); f.write(os.environ['TUF_SNAPSHOT_KEY']); f.close()"
+          python -c "import os; f=open('keystore/targets', 'w'); f.write(os.environ['TUF_TARGETS_KEY']); f.close()"
+          python -c "import os; f=open('keystore/timestamp', 'w'); f.write(os.environ['TUF_TIMESTAMP_KEY']); f.close()"
 
-          # Get the version string from the job's env block
           APP_FULL_VERSION="${{ env.APP_FULL_VERSION_ENV }}"
+          APP_NAME="btx-sync"
           echo "Processing application version: $APP_FULL_VERSION"
 
-          # All tufup commands now specify --repository-dir as they operate from the Git workspace root.
-          # We provide 'yes |' for any unexpected interactive prompts.
-          
-          # Add targets (executables) to the TUF repository.
-          # Format: tufup targets add <app_version> <bundle_dir> <key_dirs>
-          tufup targets add "$APP_FULL_VERSION" \
+          # Add the --app-name flag to all commands
+          tufup --app-name "$APP_NAME" targets add "$APP_FULL_VERSION" \
             "artifacts/btx-sync-windows-latest/btx-sync.exe" \
             "keystore"
           
-          tufup targets add "$APP_FULL_VERSION" \
+          tufup --app-name "$APP_NAME" targets add "$APP_FULL_VERSION" \
             "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" \
             "keystore"
 
-          tufup targets add "$APP_FULL_VERSION" \
+          tufup --app-name "$APP_NAME" targets add "$APP_FULL_VERSION" \
             "artifacts/btx-sync-ubuntu-latest/btx-sync" \
             "keystore"
           
-          # Sign the updated repository metadata roles separately
-          # Format: tufup sign <role_name> <key_dirs>
           echo "Signing targets role..."
-          tufup sign targets keystore
+          tufup --app-name "$APP_NAME" sign targets keystore
 
           echo "Signing snapshot role..."
-          tufup sign snapshot keystore
+          tufup --app-name "$APP_NAME" sign snapshot keystore
 
           echo "Signing timestamp role..."
-          tufup sign timestamp keystore
-        env:
-          TUF_ROOT_PRIVATE_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
-          TUF_SNAPSHOT_PRIVATE_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
-          TUF_TARGETS_PRIVATE_KEY: ${{ secrets.TUF_TARGETS_PRIVATE_KEY }}
-          TUF_TIMESTAMP_PRIVATE_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
+          tufup --app-name "$APP_NAME" sign timestamp keystore
       
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
