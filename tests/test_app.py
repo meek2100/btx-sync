@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from app import App
+from logger import AppLogger  # Import AppLogger for type hinting (already correct)
 
 
 @pytest.fixture
@@ -26,6 +27,9 @@ def mock_app(mocker):
     app_instance.update_readiness_status = MagicMock()
     app_instance.settings_window = None
     app_instance.wait_window = MagicMock()
+    # Mock the new update_status_label methods
+    app_instance.update_status_label = MagicMock()
+    app_instance._update_status_label_gui = MagicMock()
 
     return app_instance
 
@@ -78,11 +82,17 @@ def test_sync_thread_target_ui_updates(mock_app, mocker):
     """Verify that sync_thread_target updates the UI and calls the main sync logic."""
     mock_app.load_config_for_sync.return_value = {"some": "config"}
     mock_sync_logic = mocker.patch("app.sync_logic_main")
+    # Patch AppLogger where it's defined (in logger.py), not where it's imported into app.py
+    mocker.patch("logger.AppLogger", return_value=MagicMock(spec=AppLogger))
+
     App.sync_thread_target(mock_app)
     mock_app.run_button.pack_forget.assert_called_once()
     mock_app.cancel_button.pack.assert_called_once()
     mock_sync_logic.assert_called_once_with(
-        {"some": "config"}, mock_app.log_message, mock_app.cancel_event
+        {"some": "config"},
+        mock_app.log_message,
+        mock_app.cancel_event,
+        mock_app.update_status_label,
     )
 
 

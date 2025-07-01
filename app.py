@@ -225,6 +225,17 @@ class App(customtkinter.CTk):
         self.log_box.configure(state="disabled")
         self.log_box.see("end")
 
+    def update_status_label(self, message: str) -> None:
+        """Updates the status label in the UI."""
+        # Ensure this is called on the main thread for UI updates
+        self.after(0, self._update_status_label_gui, message)
+
+    def _update_status_label_gui(self, message: str) -> None:
+        """Internal helper to update the status label on the GUI thread."""
+        config = self.get_current_config()
+        debug_suffix = " (Debug)" if config.get("LOG_LEVEL") == "Debug" else ""
+        self.status_label.configure(text=f"Running: {message}{debug_suffix}")
+
     def cancel_sync(self):
         """Sets the cancellation event to stop the sync thread."""
         self.status_label.configure(text="Cancelling...")
@@ -235,23 +246,28 @@ class App(customtkinter.CTk):
         self.run_button.pack_forget()
         self.cancel_button.pack(side="left", padx=10, pady=5)
         self.cancel_button.configure(state="normal")
-        self.status_label.configure(text="Running...")
+        self.status_label.configure(text="Running...")  # Initial state
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
         config = self.load_config_for_sync()
         try:
             if config:
-                sync_logic_main(config, self.log_message, self.cancel_event)
+                sync_logic_main(
+                    config,
+                    self.log_message,
+                    self.cancel_event,
+                    self.update_status_label,  # Pass the new callback
+                )
             else:
                 self.log_message("--- CONFIGURATION ERROR ---")
         finally:
             self.cancel_button.pack_forget()
             self.run_button.pack(side="left", padx=10, pady=5)
             status = "Cancelled" if self.cancel_event.is_set() else None
-            self.update_readiness_status()
+            self.update_readiness_status()  # This resets to Ready/Config Required
             if status:
-                self.status_label.configure(text=status)
+                self.status_label.configure(text=status)  # Overwrite if cancelled
             self.log_message("\n")
 
     def start_sync_thread(self):
