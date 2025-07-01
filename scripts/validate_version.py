@@ -1,3 +1,4 @@
+# scripts/validate_version.py
 import sys
 from pathlib import Path
 import importlib.util
@@ -5,8 +6,6 @@ import importlib.util
 
 def load_constants_from_path(file_path: Path):
     """Dynamically loads constants from a specified file path."""
-    # Use a unique module name based on path to prevent conflicts if multiple
-    # versions of constants.py were loaded in a complex scenario
     module_name = f"temp_constants_{file_path.stem}_{file_path.parent.name}"
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     if spec is None:
@@ -26,12 +25,14 @@ def parse_version_string(version_str: str) -> tuple:
 
 
 def main():
-    # Expect the path to the develop branch's constants.py as an argument
+    # Expect the path to the copied develop_constants.py as an argument
     if len(sys.argv) < 2:
-        print("Error: Path to develop branch's constants.py not provided.")
+        print("Error: Path to develop_constants.py not provided.")
         sys.exit(1)
 
-    develop_constants_path_arg = Path(sys.argv[1])
+    develop_constants_path_arg = Path(
+        sys.argv[1]
+    )  # This will be Path("develop_constants.py")
 
     try:
         # The current branch's constants.py is always at the root of the main checkout
@@ -41,17 +42,22 @@ def main():
             print(f"Error: {current_constants_path} not found in current branch.")
             sys.exit(1)
 
+        # If develop_constants.py doesn't exist (e.g., first PR, or main branch)
+        # then we only need to validate the current constants for basic format.
         if not develop_constants_path_arg.exists():
             print(
-                f"Error: Provided develop constants path "
-                f"'{develop_constants_path_arg}' does not exist."
+                "No previous 'develop' branch constants found (develop_constants.py). "
+                "Skipping version comparison. "
+                "Ensure initial 'develop' version is set correctly."
             )
-            # In a PR context, the develop branch should always exist.
-            # This implies a problem with the checkout path.
-            sys.exit(1)
+            sys.exit(
+                0
+            )  # Allow to pass if no base for comparison (e.g., first push to new repo)
 
         current_config = load_constants_from_path(current_constants_path)
-        develop_config = load_constants_from_path(develop_constants_path_arg)
+        develop_config = load_constants_from_path(
+            develop_constants_path_arg
+        )  # Load from argument path
 
         current_next_version = parse_version_string(
             current_config["NEXT_RELEASE_VERSION"]

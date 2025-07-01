@@ -1,5 +1,4 @@
 # .github/workflows/ci.yml
-# This workflow runs tests on every push and pull request to the main and develop branches.
 
 name: Run Tests
 
@@ -22,17 +21,20 @@ jobs:
       with:
         fetch-depth: 0
 
-    # Checkout develop into a *separate* and *temporary* directory
-    # and then directly pass its constants.py path to the script
-    - name: Checkout develop branch for version comparison
+    # Checkout develop branch into a separate, temporary directory
+    # This will contain all files from the develop branch
+    - name: Checkout develop branch fully for comparison
       uses: actions/checkout@v4
       with:
         ref: develop
-        path: develop-branch-temp # Use a different path name
+        path: develop-branch-full # Renamed path for clarity
         fetch-depth: 0
-        sparse-checkout: true # Enable sparse checkout
-        sparse-checkout-paths: | # Specify only the files needed from develop branch
-          constants.py
+
+    # Manually copy only constants.py from the full develop branch checkout
+    # to the main workspace root for the validation script
+    - name: Copy specific files from develop branch checkout
+      run: cp constants.py ${{ github.workspace }}/develop_constants.py
+      working-directory: develop-branch-full # Execute this command inside the full checkout
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -51,9 +53,9 @@ jobs:
         pip install -r requirements.txt
         pip install -r tests/requirements-dev.txt
         
-    # Run Version Validation Script, passing the path to the develop branch's constants.py
+    # Run Version Validation Script, now knowing develop_constants.py is in the root
     - name: Run Version Validation
-      run: python scripts/validate_version.py develop-branch-temp/constants.py
+      run: python scripts/validate_version.py develop_constants.py # Pass the new path
       working-directory: ${{ github.workspace }} # Ensure script runs from repo root
 
     - name: Run Tests with Pytest
