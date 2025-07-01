@@ -31,3 +31,9 @@ dist/
 .DS_Store
 Thumbs.db
 keypack.pyu
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+version.py # Add this line
