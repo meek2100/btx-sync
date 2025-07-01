@@ -12,6 +12,17 @@ A cross-platform desktop application for synchronizing content from Braze to Tra
 -   **Configurable Settings:** An easy-to-use settings panel for configuring API keys, endpoints, and features like TMX backup.
 -   **Robust Logging:** Provides clear feedback on the sync process, with an optional "Debug" mode for detailed API call inspection.
 
+## How It Works
+
+This tool automates the process of preparing Braze content for professional translation via Transifex.
+
+1.  **Connects to Braze:** It uses the Braze API to fetch all of your **Email Templates** and **Content Blocks**.
+2.  **Creates Transifex Resources:** For each item from Braze, it creates a corresponding "resource" in your Transifex project.
+    * The **Braze ID** (e.g., `email_template_id`) is used as the `slug` in Transifex. This creates a stable, unique identifier that won't change even if the name does.
+    * The **Braze Name** (e.g., `template_name`) is used as the display `name` in Transifex, making it easy for translators to identify the content.
+3.  **Extracts Content:** It extracts the text from translatable fields (like `subject` and `body`) from each Braze item.
+4.  **Uploads for Translation:** This extracted text is uploaded as the "source strings" to the corresponding resource in Transifex, ready for your translation team to get to work.
+
 ---
 ## For End-Users
 
