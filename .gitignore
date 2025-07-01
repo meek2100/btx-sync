@@ -38,4 +38,4 @@ dist/
 *.spec
 
 # tufup signing keys
-keystore/
+private-keystore/
