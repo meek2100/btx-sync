@@ -77,9 +77,16 @@ jobs:
         uses: actions/setup-python@v5
         with: { python-version: "3.10" }
 
+      # Create a single directory to bundle all platform executables
+      - name: Create Bundle Directory
+        run: |
+          mkdir -p bundle
+          cp artifacts/btx-sync-windows-latest/btx-sync.exe bundle/
+          cp artifacts/btx-sync-macos-latest/btx-sync-macOS.zip bundle/
+          cp artifacts/btx-sync-ubuntu-latest/btx-sync bundle/
+
       - name: Initialize, Sign, and Process Packages with tufup
         env:
-          # Pass secrets as environment variables to the step
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
           TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_PRIVATE_KEY }}
@@ -88,7 +95,7 @@ jobs:
           pip install tufup
           mkdir -p keystore repository/targets
 
-          # Use Python to reliably write secrets to files, avoiding shell issues
+          # Use Python to reliably write secrets to files
           python -c "import os; f=open('keystore/root', 'w'); f.write(os.environ['TUF_ROOT_KEY']); f.close()"
           python -c "import os; f=open('keystore/snapshot', 'w'); f.write(os.environ['TUF_SNAPSHOT_KEY']); f.close()"
           python -c "import os; f=open('keystore/targets', 'w'); f.write(os.environ['TUF_TARGETS_KEY']); f.close()"
@@ -97,18 +104,8 @@ jobs:
           APP_FULL_VERSION="${{ env.APP_FULL_VERSION_ENV }}"
           echo "Processing application version: $APP_FULL_VERSION"
 
-          # tufup commands will now read the corrected app name from your committed .tufup-repo-config file
-          tufup targets add "$APP_FULL_VERSION" \
-            "artifacts/btx-sync-windows-latest/btx-sync.exe" \
-            "keystore"
-          
-          tufup targets add "$APP_FULL_VERSION" \
-            "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" \
-            "keystore"
-
-          tufup targets add "$APP_FULL_VERSION" \
-            "artifacts/btx-sync-ubuntu-latest/btx-sync" \
-            "keystore"
+          # Run 'targets add' only ONCE on the directory containing all builds
+          tufup targets add "$APP_FULL_VERSION" "bundle" "keystore"
           
           echo "Signing targets role..."
           tufup sign targets keystore
