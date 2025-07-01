@@ -24,8 +24,12 @@ jobs:
         uses: actions/setup-python@v5
         with: { python-version: "${{ matrix.python-version }}" }
       - name: Create Version File
-        id: set_version # Add an ID to this step to access its outputs
+        id: set_version
         run: |
+          # Define BUILD_DATE and SHORT_SHA once at the beginning
+          BUILD_DATE=$(date +%Y%m%d)
+          SHORT_SHA=${GITHUB_SHA::7}
+
           # Read NEXT_RELEASE_VERSION and RELEASE_TYPE from constants.py
           NEXT_VER=$(python -c "from constants import NEXT_RELEASE_VERSION; print(NEXT_RELEASE_VERSION)")
           REL_TYPE=$(python -c "from constants import RELEASE_TYPE; print(REL_TYPE)")
@@ -33,15 +37,10 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${{ github.ref_name }}
           elif [[ "${{ github.ref }}" == refs/heads/develop ]]; then
-            BUILD_DATE=$(date +%Y%m%d)
-            SHORT_SHA=${GITHUB_SHA::7}
             # Use PEP440 compatible pre-release version: major.minor.patch.pre_tag.YYYYMMDD.gSHORT_SHA
-            # tufup expects segments separated by . for pre-release, not -
             VERSION="${NEXT_VER}.${REL_TYPE}.${BUILD_DATE}.g${SHORT_SHA}" 
           else
             # Fallback for other branches (e.g., feature branches)
-            BUILD_DATE=$(date +%Y%m%d)
-            SHORT_SHA=${GITHUB_SHA::7}
             VERSION="0.0.0.dev.${BUILD_DATE}.g${SHORT_SHA}" # Use .dev for local/feature branch builds
           fi
           echo "__version__ = '${VERSION#v}'" > version.py
@@ -91,6 +90,7 @@ jobs:
           echo "${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}" > keystore/timestamp
 
           # Ensure the 'repository' directory exists for tufup operations
+          # This assumes you have committed the initial repository/metadata files
           mkdir -p repository/metadata
 
           # Get the version string from the 'build' job's output
