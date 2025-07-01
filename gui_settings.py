@@ -4,6 +4,7 @@ import webbrowser
 from tkinter import messagebox, filedialog
 from pathlib import Path
 from typing import Any
+import requests  # Added import
 
 from constants import (
     DEFAULT_AUTO_UPDATE_ENABLED,
@@ -11,6 +12,7 @@ from constants import (
     DEFAULT_BACKUP_PATH_NAME,
     DEFAULT_BRAZE_REST_ENDPOINT,
     DEFAULT_LOG_LEVEL,
+    TRANSIFEX_API_BASE_URL,  # Added import
 )
 from config import SERVICE_NAME
 from utils import resource_path
@@ -84,11 +86,20 @@ class SettingsWindow(customtkinter.CTkToplevel):
         )
         self.log_level_menu.grid(row=13, column=1, padx=20, pady=5, sticky="w")
 
+        # --- Button Frame (Updated) ---
         self.button_frame = customtkinter.CTkFrame(self, fg_color="transparent")
         self.button_frame.grid(
             row=14, column=0, columnspan=3, padx=20, pady=(20, 10), sticky="ew"
         )
         self.button_frame.grid_columnconfigure(0, weight=1)
+
+        self.test_connection_button = customtkinter.CTkButton(
+            self.button_frame,
+            text="Test Connections",
+            command=self.test_connections,
+        )
+        self.test_connection_button.pack(side="left", padx=(0, 10))
+
         self.reset_button = customtkinter.CTkButton(
             self.button_frame,
             text="Reset to Defaults",
@@ -109,6 +120,7 @@ class SettingsWindow(customtkinter.CTkToplevel):
             border_width=1,
         )
         self.cancel_button.pack(side="right", padx=(0, 10))
+        # --- End Button Frame Update ---
 
         self.load_settings()
 
@@ -246,3 +258,81 @@ class SettingsWindow(customtkinter.CTkToplevel):
                     pass
             self.load_settings()
             messagebox.showinfo("Success", "All settings have been reset.")
+
+    def test_connections(self) -> None:
+        """Tests the Braze and Transifex API connections using current input."""
+        braze_key = self.braze_api_key_entry.get()
+        braze_endpoint = self.braze_endpoint_entry.get()
+        tx_token = self.transifex_api_token_entry.get()
+        tx_org = self.transifex_org_slug_entry.get()
+        tx_project = self.transifex_project_slug_entry.get()
+
+        results = []
+
+        # Test Braze Connection
+        braze_status, braze_msg = self._test_braze_connection(braze_key, braze_endpoint)
+        results.append(f"Braze Connection: {braze_status} - {braze_msg}")
+
+        # Test Transifex Connection
+        transifex_status, transifex_msg = self._test_transifex_connection(
+            tx_token, tx_org, tx_project
+        )
+        results.append(f"Transifex Connection: {transifex_status} - {transifex_msg}")
+
+        messagebox.showinfo("Connection Test Results", "\n".join(results))
+
+    def _test_braze_connection(self, api_key: str, endpoint: str) -> tuple[str, str]:
+        if not api_key or not endpoint:
+            return "SKIPPED", "Missing API Key or Endpoint."
+        session = requests.Session()
+        session.headers.update({"Authorization": f"Bearer {api_key}"})
+        try:
+            # Use a lightweight endpoint, e.g., fetching a small list
+            response = session.get(
+                f"{endpoint}/templates/email/list?limit=1", timeout=10
+            )
+            response.raise_for_status()
+            return "SUCCESS", "Connected to Braze API."
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                return "FAILED", "Invalid Braze API Key or Endpoint."
+            return "FAILED", f"Braze API Error: {e.response.status_code}"
+        except requests.exceptions.ConnectionError:
+            return "FAILED", "Could not connect to Braze endpoint."
+        except requests.exceptions.Timeout:
+            return "FAILED", "Braze connection timed out."
+        except Exception as e:
+            return "FAILED", f"An unexpected error testing Braze: {e}"
+
+    def _test_transifex_connection(
+        self, api_token: str, org_slug: str, project_slug: str
+    ) -> tuple[str, str]:
+        if not api_token or not org_slug or not project_slug:
+            return "SKIPPED", "Missing API Token, Org, or Project Slug."
+        session = requests.Session()
+        session.headers.update(
+            {
+                "Authorization": f"Bearer {api_token}",
+                "Content-Type": "application/vnd.api+json",
+            }
+        )
+        try:
+            # Use a lightweight endpoint to check project existence
+            project_id = f"o:{org_slug}:p:{project_slug}"
+            response = session.get(
+                f"{TRANSIFEX_API_BASE_URL}/projects/{project_id}", timeout=10
+            )
+            response.raise_for_status()
+            return "SUCCESS", "Connected to Transifex API & Project."
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                return "FAILED", "Invalid Transifex API Token."
+            elif e.response.status_code == 404:
+                return ("FAILED", "Transifex Org or Project Slug not found/accessible.")
+            return "FAILED", f"Transifex API Error: {e.response.status_code}"
+        except requests.exceptions.ConnectionError:
+            return "FAILED", "Could not connect to Transifex endpoint."
+        except requests.exceptions.Timeout:
+            return "FAILED", "Transifex connection timed out."
+        except Exception as e:
+            return "FAILED", f"An unexpected error testing Transifex: {e}"
