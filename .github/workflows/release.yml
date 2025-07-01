@@ -24,28 +24,28 @@ jobs:
         uses: actions/setup-python@v5
         with: { python-version: "${{ matrix.python-version }}" }
       - name: Create Version File
+        id: set_version # Add an ID to this step to access its outputs
         run: |
           # Read NEXT_RELEASE_VERSION and RELEASE_TYPE from constants.py
-          # This script runs in the context of the primary checkout
           NEXT_VER=$(python -c "from constants import NEXT_RELEASE_VERSION; print(NEXT_RELEASE_VERSION)")
-          REL_TYPE=$(python -c "from constants import RELEASE_TYPE; print(RELEASE_TYPE)")
+          REL_TYPE=$(python -c "from constants import RELEASE_TYPE; print(REL_TYPE)")
           
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            # For tagged releases (e.g., v1.0.0), use the tag name as the version
             VERSION=${{ github.ref_name }}
           elif [[ "${{ github.ref }}" == refs/heads/develop ]]; then
-            # For develop branch builds, use NEXT_RELEASE_VERSION with RELEASE_TYPE suffix
-            # and append date/SHA for unique pre-release build numbers for tufup
             BUILD_DATE=$(date +%Y%m%d)
             SHORT_SHA=${GITHUB_SHA::7}
-            VERSION="${NEXT_VER}-${REL_TYPE}-${BUILD_DATE}-${SHORT_SHA}"
+            # Use PEP440 compatible pre-release version: major.minor.patch.pre_tag.YYYYMMDD.gSHORT_SHA
+            # tufup expects segments separated by . for pre-release, not -
+            VERSION="${NEXT_VER}.${REL_TYPE}.${BUILD_DATE}.g${SHORT_SHA}" 
           else
-            # Fallback for other branches (e.g., feature branches, should not typically trigger releases)
-            BUILD_DATE=$(date +%Y%m%d) # Define BUILD_DATE for fallback path too
-            SHORT_SHA=${GITHUB_SHA::7} # Define SHORT_SHA for fallback path too
-            VERSION="0.0.0-dev-${BUILD_DATE}-${SHORT_SHA}"
+            # Fallback for other branches (e.g., feature branches)
+            BUILD_DATE=$(date +%Y%m%d)
+            SHORT_SHA=${GITHUB_SHA::7}
+            VERSION="0.0.0.dev.${BUILD_DATE}.g${SHORT_SHA}" # Use .dev for local/feature branch builds
           fi
           echo "__version__ = '${VERSION#v}'" > version.py
+          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT # Set version as an output for subsequent steps
         shell: bash
       - name: Install dependencies
         run: pip install -r requirements.txt && pip install pyinstaller
@@ -85,30 +85,31 @@ jobs:
           mkdir -p keystore
           
           # Reconstruct individual private key files from GitHub Secrets
-          # Ensure these secret names match what you created on GitHub
           echo "${{ secrets.TUF_ROOT_PRIVATE_KEY }}" > keystore/root
           echo "${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}" > keystore/snapshot
           echo "${{ secrets.TUF_TARGETS_PRIVATE_KEY }}" > keystore/targets
           echo "${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}" > keystore/timestamp
 
           # Ensure the 'repository' directory exists for tufup operations
-          # This is where the generated metadata (root.json, targets.json, etc.) will reside
-          # This assumes you have committed the initial repository/metadata files
           mkdir -p repository/metadata
 
+          # Get the version string from the 'build' job's output
+          APP_FULL_VERSION="${{ needs.build.outputs.version }}"
+          echo "Processing application version: $APP_FULL_VERSION"
+
           # Add targets (executables) to the TUF repository
-          # These commands will update the metadata files in the 'repository' directory
-          tufup targets add \
+          # Provide APP_FULL_VERSION as the required positional argument
+          tufup targets add "$APP_FULL_VERSION" \
             --path artifacts/btx-sync-windows-latest/btx-sync.exe \
             --keystore-dir keystore \
             --repository-dir repository
           
-          tufup targets add \
+          tufup targets add "$APP_FULL_VERSION" \
             --path artifacts/btx-sync-macos-latest/btx-sync-macOS.zip \
             --keystore-dir keystore \
             --repository-dir repository
 
-          tufup targets add \
+          tufup targets add "$APP_FULL_VERSION" \
             --path artifacts/btx-sync-ubuntu-latest/btx-sync \
             --keystore-dir keystore \
             --repository-dir repository
