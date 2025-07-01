@@ -60,7 +60,8 @@ jobs:
         run: pip install pyupdater
       - name: Initialize, Sign, and Process Packages
         run: |
-          pyupdater init --app-name btx-sync
+          pyupdater init --app-name btx-sync --no-input
+          echo "${{ secrets.PYUPDATER_KEYPACK }}"
           echo "${{ secrets.PYUPDATER_KEYPACK }}" > keypack.pyu
           pyupdater keys --import keypack.pyu
           pyupdater pkg --process --sign artifacts/btx-sync-windows-latest/btx-sync.exe
