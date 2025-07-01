@@ -1,61 +1,56 @@
 # .github/workflows/ci.yml
 
-    name: Run Tests
+name: Run Tests
 
-    on:
-      push:
-        branches: [ "main", "develop" ]
-      pull_request:
-        branches: [ "main", "develop" ]
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
 
-    jobs:
-      test:
-        runs-on: ubuntu-latest
-        strategy:
-          matrix:
-            python-version: ["3.10", "3.11"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11"]
 
-        steps:
-        - name: Checkout code (current branch)
-          uses: actions/checkout@v4
-          with:
-            fetch-depth: 0
+    steps:
+    - name: Checkout code (current branch)
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Need full history to compare with develop branch
 
-        # Checkout develop branch into a separate directory
-        - name: Checkout develop branch for version comparison
-          uses: actions/checkout@v4
-          with:
-            ref: develop
-            path: develop-branch-temp # All files from develop will be here
-            fetch-depth: 0 # Get full history for the develop branch checkout
+    # Retrieve constants.py from the develop branch directly using git cat-file
+    - name: Get develop branch constants.py for comparison
+      # This command fetches the content of constants.py from the 'develop' branch
+      # and writes it to develop_constants.py in the current working directory.
+      # This avoids checking out the entire 'develop' branch.
+      run: git cat-file -p origin/develop:constants.py > develop_constants.py
+      working-directory: ${{ github.workspace }} # Ensure command runs from repo root
 
-        # Copy constants.py from the checked out develop branch to the main workspace root
-        - name: Copy develop constants.py to workspace root
-          run: cp constants.py ../develop_constants.py # Copy from here to parent directory
-          working-directory: develop-branch-temp # Execute this command inside develop-branch-temp
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
 
-        - name: Set up Python ${{ matrix.python-version }}
-          uses: actions/setup-python@v5
-          with:
-            python-version: ${{ matrix.python-version }}
+    - name: Install Tkinter
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-tk
 
-        - name: Install Tkinter
-          if: runner.os == 'Linux'
-          run: |
-            sudo apt-get update
-            sudo apt-get install -y python3-tk
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r tests/requirements-dev.txt
+        
+    # Run Version Validation Script, now knowing develop_constants.py is in the root
+    - name: Run Version Validation
+      run: python scripts/validate_version.py develop_constants.py # Pass the new path
+      working-directory: ${{ github.workspace }} # Ensure script runs from repo root
 
-        - name: Install Dependencies
-          run: |
-            python -m pip install --upgrade pip
-            pip install -r requirements.txt
-            pip install -r tests/requirements-dev.txt
-            
-        # Run Version Validation Script, now knowing develop_constants.py is in the root
-        - name: Run Version Validation
-          run: python scripts/validate_version.py develop_constants.py # Pass the new path
-          working-directory: ${{ github.workspace }} # Ensure script runs from repo root
-
-        - name: Run Tests with Pytest
-          run: |
-            pytest --cov=. --cov-report=xml
+    - name: Run Tests with Pytest
+      run: |
+        pytest --cov=. --cov-report=xml
