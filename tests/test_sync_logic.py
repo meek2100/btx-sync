@@ -301,15 +301,6 @@ def test_sync_main_handles_cancellation_during_backup(
     mock_session_instance.get.assert_not_called()
 
 
-# Moving check_for_cancel to global scope in sync_logic.py
-# (This change needs to be applied to sync_logic.py)
-#
-# Helper for patching check_for_cancel
-def _raise_cancellation(event):
-    if event.is_set():
-        raise sync_logic.CancellationError("Simulated cancellation")
-
-
 def test_sync_main_cancellation_during_braze_list_fetch(
     mocker, mock_session, mock_config, no_op_callback
 ):
@@ -359,13 +350,12 @@ def test_sync_main_cancellation_during_braze_detail_fetch(
         ),
     ]
 
-    # Patch check_for_cancel directly
-    mocker.patch(
-        "sync_logic.check_for_cancel",
-        side_effect=lambda: (
-            cancel_event.is_set() and _raise_cancellation(cancel_event)
-        ),
-    )
+    # Use a simpler patch for check_for_cancel that raises if event is set
+    def _mock_check_for_cancel(event):
+        if event.is_set():
+            raise sync_logic.CancellationError("Simulated cancellation")
+
+    mocker.patch("sync_logic.check_for_cancel", side_effect=_mock_check_for_cancel)
 
     logged_messages = []
     # Trigger cancellation after the first detail fetch
@@ -375,7 +365,7 @@ def test_sync_main_cancellation_during_braze_detail_fetch(
         side_effect=lambda msg: (
             "Fetching details for ID: temp_id_1" in msg
             and cancel_event.set()
-            and AppLogger(logged_messages.append).info(msg)
+            and AppLogger(logged_messages.append).info(msg)  # Ensure log
         ),
     )
 
@@ -436,6 +426,7 @@ def test_sync_main_handles_empty_braze_content_blocks_list(
         ),
         MagicMock(status_code=200, json=lambda: {"subject": "S1"}),
         MagicMock(status_code=404),  # for template resource creation
+        MagicMock(status_code=200),  # for template resource post
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
     ]
     mock_session.post.return_value = MagicMock(status_code=201)
