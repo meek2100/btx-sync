@@ -58,13 +58,11 @@ jobs:
           python-version: "3.10"
       - name: Install PyUpdater
         run: pip install pyupdater
-      - name: Initialize PyUpdater and Import Keys
+      - name: Initialize, Sign, and Process Packages
         run: |
           pyupdater init --app-name btx-sync
           echo "${{ secrets.PYUPDATER_KEYPACK }}" > keypack.pyu
           pyupdater keys --import keypack.pyu
-      - name: Process and Sign Packages
-        run: |
           pyupdater pkg --process --sign artifacts/btx-sync-windows-latest/btx-sync.exe
           pyupdater pkg --process --sign artifacts/btx-sync-macos-latest/btx-sync-macOS.zip
           pyupdater pkg --process --sign artifacts/btx-sync-ubuntu-latest/btx-sync
