@@ -31,7 +31,8 @@ jobs:
         fetch-depth: 0 # Not strictly needed for this file copy, but good practice for git operations
 
     - name: Copy develop constants.py
-      run: cp develop-branch/constants.py develop_constants.py # `cp` works on ubuntu-latest
+      working-directory: ${{ github.workspace }} # Ensure we are at the repo root
+      run: cp develop-branch/constants.py develop_constants.py
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
