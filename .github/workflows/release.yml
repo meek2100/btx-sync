@@ -95,48 +95,44 @@ jobs:
           echo "${{ secrets.TUF_TARGETS_PRIVATE_KEY }}" > keystore/targets
           echo "${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}" > keystore/timestamp
 
-          # Ensure the 'repository' directory exists (metadata is assumed to be pre-committed)
-          # Removed: tufup init --non-interactive (as it's interactive in tufup 0.9.0)
-          # We rely on .tufup-repo-config and metadata files being committed locally once.
+          # Ensure the 'repository/metadata' directory exists within the main repo root
+          # This assumes 'repository/' is at the root and metadata is inside it.
           mkdir -p repository/metadata
 
           # Get the version string from the job's env block
           APP_FULL_VERSION="${{ env.APP_FULL_VERSION_ENV }}"
           echo "Processing application version: $APP_FULL_VERSION"
 
-          # Now, operate from the 'repository' directory where metadata is
-          pushd repository
+          # All tufup commands now specify --repository-dir as they operate from the Git workspace root.
+          # We provide 'yes |' for any unexpected interactive prompts.
           
           # Add targets (executables) to the TUF repository.
-          # Format: tufup targets add <app_version> <bundle_dir> <key_dirs>
-          # Note: bundle_dir paths are relative to the *main workspace*,
-          #       so we need to use a relative path back to 'artifacts'
-          # This includes 'yes |' for any unexpected interactive prompts.
-          yes | tufup targets add "$APP_FULL_VERSION" \
-            "../artifacts/btx-sync-windows-latest/btx-sync.exe" \
-            "../keystore"
+          # Format: tufup targets add <app_version> <bundle_dir> <key_dirs> --repository-dir <path>
+          tufup targets add "$APP_FULL_VERSION" \
+            "artifacts/btx-sync-windows-latest/btx-sync.exe" \
+            "keystore" \
+            --repository-dir repository
           
-          yes | tufup targets add "$APP_FULL_VERSION" \
-            "../artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" \
-            "../keystore"
+          tufup targets add "$APP_FULL_VERSION" \
+            "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" \
+            "keystore" \
+            --repository-dir repository
 
-          yes | tufup targets add "$APP_FULL_VERSION" \
-            "../artifacts/btx-sync-ubuntu-latest/btx-sync" \
-            "../keystore"
+          tufup targets add "$APP_FULL_VERSION" \
+            "artifacts/btx-sync-ubuntu-latest/btx-sync" \
+            "keystore" \
+            --repository-dir repository
           
           # Sign the updated repository metadata roles separately
-          # Format: tufup sign <role_name> <key_dirs> (positional, as --keystore-dir is not recognized)
-          # This includes 'yes |' for any unexpected interactive prompts.
+          # Format: tufup sign <role_name> <key_dirs> --repository-dir <path>
           echo "Signing targets role..."
-          yes | tufup sign targets ../keystore
+          tufup sign targets keystore --repository-dir repository
 
           echo "Signing snapshot role..."
-          yes | tufup sign snapshot ../keystore
+          tufup sign snapshot keystore --repository-dir repository
 
           echo "Signing timestamp role..."
-          yes | tufup sign timestamp ../keystore
-
-          popd # Change back to original directory
+          tufup sign timestamp keystore --repository-dir repository
         env:
           TUF_ROOT_PRIVATE_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
           TUF_SNAPSHOT_PRIVATE_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
