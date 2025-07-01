@@ -45,7 +45,7 @@ To run this application from the source code, you'll need Python 3.10 or higher.
 1.  **Clone the repository:**
     ```bash
     git clone [https://github.com/meek2100/btx-sync.git](https://github.com/meek2100/btx-sync.git)
-    cd braze-transifex-sync
+    cd btx-sync
     ```
 
 2.  **Create and activate a virtual environment:**
@@ -69,10 +69,24 @@ To run this application from the source code, you'll need Python 3.10 or higher.
     pip install -r tests/requirements-dev.txt
     ```
 
-5.  **Run the application:**
+5.  **(Optional) Create Placeholder Version File:**
+    To prevent linter errors like `Import "version" could not be resolved` in your IDE, create a local placeholder file. This file is ignored by Git.
+    ```bash
+    echo '__version__ = "0.0.0-dev"' > version.py
+    ```
+
+6.  **Run the application:**
     ```bash
     python app.py
     ```
+
+### Releasing a New Version
+
+The application version is derived automatically from Git tags. To release a new version:
+
+1.  Ensure all changes are committed to the `main` branch.
+2.  Create a new Git tag with a 'v' prefix (e.g., `v1.1.0`).
+3.  Push the tag to the repository (`git push --tags`). This will trigger the release workflow.
 
 ### Testing
 
@@ -86,15 +100,11 @@ This project uses `pytest` for unit testing. To run the test suite:
 
 ### Building the Executable
 
-You can package the application into a single, standalone executable using `PyInstaller`.
+You can package the application into a standalone executable using `PyInstaller`. This command mirrors the production build process.
 
-1.  **Install PyInstaller:**
-    ```bash
-    pip install pyinstaller
-    ```
+```bash
+# For Windows
+pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.ico" --add-data "assets;assets" --add-data "README.md;." app.py
 
-2.  **Run the build command:**
-    This command includes the necessary flags to bundle the assets folder and the README file.
-    ```bash
-    pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.ico" --add-data "assets:assets" --add-data "README.md:." app.py
-    ```
+# For macOS/Linux
+pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.icns" --add-data "assets:assets" --add-data "README.md:." app.py

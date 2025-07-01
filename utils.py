@@ -5,7 +5,7 @@ import sys
 import os
 
 
-def resource_path(relative_path):
+def resource_path(relative_path: str) -> str:
     """
     Get absolute path to a resource, which works for development environments
     and for the bundled executable created by PyInstaller.
@@ -18,3 +18,11 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
+
+
+def is_production_environment() -> bool:
+    """
+    Checks if the application is running as a bundled executable by checking
+    for the _MEIPASS attribute set by PyInstaller.
+    """
+    return hasattr(sys, "_MEIPASS")
