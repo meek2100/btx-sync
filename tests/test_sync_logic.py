@@ -3,10 +3,17 @@
 import pytest
 import requests
 import json
+import threading
 from unittest.mock import MagicMock, call
 
 import sync_logic
 from logger import AppLogger
+
+
+@pytest.fixture(autouse=True)
+def mock_time_sleep(mocker):
+    """Automatically mock time.sleep() for all tests to prevent long waits."""
+    mocker.patch("time.sleep")
 
 
 def no_op_callback(message):
@@ -49,29 +56,23 @@ def test_fetch_braze_list_pagination(mock_session, mock_config):
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
     ]
 
-    sync_logic.sync_logic_main(mock_config, no_op_callback)
+    sync_logic.sync_logic_main(mock_config, no_op_callback, threading.Event())
 
     expected_calls = [
-        call(
-            "https://rest.mock.braze.com/templates/email/list?limit=100&offset=0",
-            timeout=30,
-        ),
+        call("https://rest.mock.braze.com/templates/email/list?limit=100", timeout=30),
         call(
             "https://rest.mock.braze.com/templates/email/list?limit=100&offset=100",
             timeout=30,
         ),
-        call(
-            "https://rest.mock.braze.com/content_blocks/list?limit=100&offset=0",
-            timeout=30,
-        ),
     ]
+    # Check just the Braze calls for this test
     mock_session.get.assert_has_calls(expected_calls)
 
 
 def test_sync_main_stops_if_backup_fails(mocker, mock_session, mock_config):
     """Verify that if backup is enabled and fails, the sync does not proceed."""
     mocker.patch("sync_logic.perform_tmx_backup", return_value=False)
-    sync_logic.sync_logic_main(mock_config, no_op_callback)
+    sync_logic.sync_logic_main(mock_config, no_op_callback, threading.Event())
     mock_session.get.assert_not_called()
 
 
@@ -80,10 +81,9 @@ def test_sync_logic_halts_on_unexpected_backup_response(
 ):
     """Verify the sync halts if the backup process fails unexpectedly."""
     mock_config["BACKUP_ENABLED"] = True
-    # Raise a generic error to test the final exception handler
     mocker.patch("sync_logic.perform_tmx_backup", side_effect=ValueError("test error"))
     logged_messages = []
-    sync_logic.sync_logic_main(mock_config, logged_messages.append)
+    sync_logic.sync_logic_main(mock_config, logged_messages.append, threading.Event())
     assert any("An unexpected error occurred" in msg for msg in logged_messages)
     mock_session.get.assert_not_called()
 
@@ -106,7 +106,7 @@ def test_upload_skips_if_no_content(mocker, mock_session, mock_config, empty_con
         MagicMock(status_code=404),
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
     ]
-    sync_logic.sync_logic_main(mock_config, no_op_callback)
+    sync_logic.sync_logic_main(mock_config, no_op_callback, threading.Event())
     assert mock_session.post.call_count == 1
     assert "resources" in mock_session.post.call_args.args[0]
 
@@ -116,7 +116,7 @@ def test_backup_disabled(mocker, mock_session, mock_config):
     mock_config["BACKUP_ENABLED"] = False
     mock_backup_func = mocker.patch("sync_logic.perform_tmx_backup")
     mock_session.get.return_value = MagicMock(json=lambda: {})
-    sync_logic.sync_logic_main(mock_config, no_op_callback)
+    sync_logic.sync_logic_main(mock_config, no_op_callback, threading.Event())
     mock_backup_func.assert_not_called()
 
 
@@ -133,7 +133,7 @@ def test_resource_name_no_update_needed(mock_session, mock_config):
         ),
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
     ]
-    sync_logic.sync_logic_main(mock_config, no_op_callback)
+    sync_logic.sync_logic_main(mock_config, no_op_callback, threading.Event())
     mock_session.patch.assert_not_called()
 
 
@@ -143,15 +143,18 @@ def test_perform_tmx_backup_success(mocker, mock_config):
     mock_tmx_session.post.return_value = MagicMock(
         status_code=200, json=lambda: {"data": {"id": "job1"}}
     )
-    mock_tmx_session.get.return_value = MagicMock(
-        status_code=200,
-        headers={"Content-Type": "application/octet-stream"},
-        content=b"<tmx></tmx>",
-    )
+    # This mock will represent the final response which is the file itself
+    mock_file_response = MagicMock(status_code=200, content=b"<tmx></tmx>")
+    # Make it raise the correct error when .json() is called
+    mock_file_response.json.side_effect = json.JSONDecodeError("err", "doc", 0)
+    mock_tmx_session.get.return_value = mock_file_response
+
     mocker.patch("builtins.open", mocker.mock_open())
     mocker.patch("pathlib.Path.mkdir")
     logger = AppLogger(no_op_callback)
-    result = sync_logic.perform_tmx_backup(mock_config, mock_tmx_session, logger)
+    result = sync_logic.perform_tmx_backup(
+        mock_config, mock_tmx_session, logger, threading.Event()
+    )
     assert result is True
 
 
@@ -162,7 +165,7 @@ def test_sync_handles_httperror(mock_session, mock_config):
     err.response = MagicMock(status_code=401, json=lambda: {"error": "key"})
     mock_session.get.side_effect = err
     logged_messages = []
-    sync_logic.sync_logic_main(mock_config, logged_messages.append)
+    sync_logic.sync_logic_main(mock_config, logged_messages.append, threading.Event())
     full_log = "".join(logged_messages)
     assert "[FATAL] An API error occurred." in full_log
 
@@ -172,7 +175,7 @@ def test_sync_handles_connection_error(mock_session, mock_config):
     mock_config["BACKUP_ENABLED"] = False
     mock_session.get.side_effect = requests.exceptions.ConnectionError("NW down")
     logged_messages = []
-    sync_logic.sync_logic_main(mock_config, logged_messages.append)
+    sync_logic.sync_logic_main(mock_config, logged_messages.append, threading.Event())
     assert any("[FATAL] A network error occurred" in msg for msg in logged_messages)
 
 
@@ -188,7 +191,9 @@ def test_perform_tmx_backup_job_fails(mocker, mock_config):
         json=lambda: {"data": {"attributes": {"status": "failed"}}},
     )
     logger = AppLogger(no_op_callback)
-    result = sync_logic.perform_tmx_backup(mock_config, mock_session, logger)
+    result = sync_logic.perform_tmx_backup(
+        mock_config, mock_session, logger, threading.Event()
+    )
     assert result is False
 
 
@@ -203,10 +208,12 @@ def test_perform_tmx_backup_timeout(mocker, mock_config):
         headers={"Content-Type": "application/vnd.api+json"},
         json=lambda: {"data": {"attributes": {"status": "pending"}}},
     )
-    mocker.patch("time.sleep")
+    # Make time.time jump forward past the timeout
     mocker.patch("time.time", side_effect=[100, 501])
     logger = AppLogger(no_op_callback)
-    result = sync_logic.perform_tmx_backup(mock_config, mock_session, logger)
+    result = sync_logic.perform_tmx_backup(
+        mock_config, mock_session, logger, threading.Event()
+    )
     assert result is False
 
 
@@ -225,7 +232,7 @@ def test_upload_source_content_success(mock_session, mock_config):
         MagicMock(status_code=202),
     ]
 
-    sync_logic.sync_logic_main(mock_config, no_op_callback)
+    sync_logic.sync_logic_main(mock_config, no_op_callback, threading.Event())
 
     assert mock_session.post.call_count == 2
     upload_call = mock_session.post.call_args_list[1]

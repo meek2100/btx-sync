@@ -69,6 +69,18 @@ class App(customtkinter.CTk):
         )
         self.run_button.pack(side="left", padx=10, pady=5)
 
+        self.cancel_button = customtkinter.CTkButton(
+            self.control_frame,
+            text="Cancel",
+            command=self.cancel_sync,
+            fg_color="transparent",
+            border_width=1,
+        )
+        # The cancel button will be packed later when the sync starts.
+
+        self.cancel_event = threading.Event()
+        # --- End Button and Event Updates ---
+
         self.more_icon = CTkImage(
             light_image=Image.open(resource_path("assets/dots_dark.png")),
             dark_image=Image.open(resource_path("assets/dots_light.png")),
@@ -214,24 +226,42 @@ class App(customtkinter.CTk):
         self.log_box.configure(state="disabled")
         self.log_box.see("end")
 
+    def cancel_sync(self):
+        """Sets the cancellation event to stop the sync thread."""
+        self.status_label.configure(text="Cancelling...")
+        self.cancel_button.configure(state="disabled")
+        self.cancel_event.set()
+
     def sync_thread_target(self):
-        self.run_button.configure(state="disabled", text="Syncing...")
+        self.run_button.pack_forget()
+        self.cancel_button.pack(side="left", padx=10, pady=5)
+        self.cancel_button.configure(state="normal")
         self.status_label.configure(text="Running...")
+        # ---
+
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
+
         config = self.load_config_for_sync()
-        if not config:
-            self.log_message("--- CONFIGURATION ERROR ---")
-            self.log_message("Could not load all necessary API keys and settings.")
-            self.log_message("Please open Settings and save your credentials.")
-        else:
-            sync_logic_main(config, self.log_message)
-        self.run_button.configure(state="normal", text="Run Sync")
-        self.update_readiness_status()
-        self.log_message("\n")
+
+        try:
+            if not config:
+                self.log_message("--- CONFIGURATION ERROR ---")
+                self.log_message("Could not load all necessary API keys.")
+            else:
+                sync_logic_main(config, self.log_message, self.cancel_event)
+        finally:
+            self.cancel_button.pack_forget()
+            self.run_button.pack(side="left", padx=10, pady=5)
+            if self.cancel_event.is_set():
+                self.status_label.configure(text="Cancelled")
+            else:
+                self.update_readiness_status()
+            self.log_message("\n")
 
     def start_sync_thread(self):
+        self.cancel_event.clear()
         thread = threading.Thread(target=self.sync_thread_target, daemon=True)
         thread.start()
 
