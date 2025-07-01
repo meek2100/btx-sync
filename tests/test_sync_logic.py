@@ -51,7 +51,19 @@ def mock_session(mocker):
     return mock_session_instance
 
 
-def test_fetch_braze_list_pagination(mock_session, mock_config, no_op_callback):
+@pytest.fixture
+def mock_app_logger(mocker):
+    """
+    Mocks the AppLogger class to capture messages.
+    Provides mock_logger_instance for assertions.
+    """
+    mock_logger_instance = MagicMock()
+    mocker.patch("sync_logic.AppLogger", return_value=mock_logger_instance)
+    return mock_logger_instance
+
+
+# ADDED 'mocker' to arguments
+def test_fetch_braze_list_pagination(mocker, mock_session, mock_config, no_op_callback):
     """Verify that the fetch_braze_list function correctly handles pagination."""
     mock_config["BACKUP_ENABLED"] = False
     page1 = {"templates": [{"email_template_id": "id1"}] * 100}
@@ -72,10 +84,10 @@ def test_fetch_braze_list_pagination(mock_session, mock_config, no_op_callback):
             timeout=30,
         ),
     ]
-    # Check just the Braze calls for this test
     mock_session.get.assert_has_calls(expected_calls)
 
 
+# ADDED 'mocker' to arguments
 def test_sync_main_stops_if_backup_fails(
     mocker, mock_session, mock_config, no_op_callback
 ):
@@ -85,18 +97,22 @@ def test_sync_main_stops_if_backup_fails(
     mock_session.get.assert_not_called()
 
 
+# ADDED 'mocker' and 'mock_app_logger' to arguments
 def test_sync_logic_halts_on_unexpected_backup_response(
-    mocker, mock_session, mock_config, no_op_callback
+    mocker, mock_session, mock_config, no_op_callback, mock_app_logger
 ):
     """Verify the sync halts if the backup process fails unexpectedly."""
     mock_config["BACKUP_ENABLED"] = True
     mocker.patch("sync_logic.perform_tmx_backup", side_effect=ValueError("test error"))
-    logged_messages = []
-    sync_logic.sync_logic_main(mock_config, logged_messages.append, threading.Event())
-    assert any("An unexpected error occurred" in msg for msg in logged_messages)
+    # We pass no_op_callback to main function, but check mock_app_logger
+    sync_logic.sync_logic_main(mock_config, no_op_callback, threading.Event())
+    mock_app_logger.fatal.assert_any_call(
+        mocker.match("An unexpected error occurred: *")
+    )
     mock_session.get.assert_not_called()
 
 
+# ADDED 'mocker' to arguments
 @pytest.mark.parametrize(
     "empty_content",
     [
@@ -122,6 +138,7 @@ def test_upload_skips_if_no_content(
     assert "resources" in mock_session.post.call_args.args[0]
 
 
+# ADDED 'mocker' to arguments
 def test_backup_disabled(mocker, mock_session, mock_config, no_op_callback):
     """Verify that the backup function is not called when disabled in config."""
     mock_config["BACKUP_ENABLED"] = False
@@ -131,7 +148,10 @@ def test_backup_disabled(mocker, mock_session, mock_config, no_op_callback):
     mock_backup_func.assert_not_called()
 
 
-def test_resource_name_no_update_needed(mock_session, mock_config, no_op_callback):
+# ADDED 'mocker' to arguments (needed for patch.object on AppLogger)
+def test_resource_name_no_update_needed(
+    mocker, mock_session, mock_config, no_op_callback
+):
     """Verify a resource name is NOT updated if it already matches."""
     mock_config["BACKUP_ENABLED"] = False
     templates = [{"email_template_id": "e123", "template_name": "Matching"}]
@@ -148,15 +168,14 @@ def test_resource_name_no_update_needed(mock_session, mock_config, no_op_callbac
     mock_session.patch.assert_not_called()
 
 
+# ADDED 'mocker' to arguments
 def test_perform_tmx_backup_success(mocker, mock_config, no_op_callback):
     """Test the complete successful flow of a TMX backup."""
     mock_tmx_session = MagicMock()
     mock_tmx_session.post.return_value = MagicMock(
         status_code=200, json=lambda: {"data": {"id": "job1"}}
     )
-    # This mock will represent the final response which is the file itself
     mock_file_response = MagicMock(status_code=200, content=b"<tmx></tmx>")
-    # Make it raise the correct error when .json() is called
     mock_file_response.json.side_effect = json.JSONDecodeError("err", "doc", 0)
     mock_tmx_session.get.return_value = mock_file_response
 
@@ -169,27 +188,31 @@ def test_perform_tmx_backup_success(mocker, mock_config, no_op_callback):
     assert result is True
 
 
-def test_sync_handles_httperror(mock_session, mock_config, no_op_callback):
+def test_sync_handles_httperror(mocker, mock_session, mock_config, mock_app_logger):
     """Test that the main sync logic catches and logs an HTTPError."""
     mock_config["BACKUP_ENABLED"] = False
     err = requests.exceptions.HTTPError("401 Unauthorized")
     err.response = MagicMock(status_code=401, json=lambda: {"error": "key"})
     mock_session.get.side_effect = err
-    logged_messages = []
-    sync_logic.sync_logic_main(mock_config, logged_messages.append, threading.Event())
-    full_log = "".join(logged_messages)
-    assert "[FATAL] An API error occurred." in full_log
+
+    sync_logic.sync_logic_main(mock_config, no_op_callback, threading.Event())
+
+    mock_app_logger.fatal.assert_any_call("An API error occurred.")
 
 
-def test_sync_handles_connection_error(mock_session, mock_config, no_op_callback):
+def test_sync_handles_connection_error(
+    mocker, mock_session, mock_config, mock_app_logger
+):
     """Test that the main sync logic catches and logs a ConnectionError."""
     mock_config["BACKUP_ENABLED"] = False
     mock_session.get.side_effect = requests.exceptions.ConnectionError("NW down")
-    logged_messages = []
-    sync_logic.sync_logic_main(mock_config, logged_messages.append, threading.Event())
-    assert any("[FATAL] A network error occurred" in msg for msg in logged_messages)
+
+    sync_logic.sync_logic_main(mock_config, no_op_callback, threading.Event())
+
+    mock_app_logger.fatal.assert_any_call(mocker.match("A network error occurred: *"))
 
 
+# ADDED 'mocker' to arguments
 def test_perform_tmx_backup_job_fails(mocker, mock_config, no_op_callback):
     """Test the TMX backup flow when Transifex reports a failed job."""
     mock_session = MagicMock()
@@ -208,6 +231,7 @@ def test_perform_tmx_backup_job_fails(mocker, mock_config, no_op_callback):
     assert result is False
 
 
+# ADDED 'mocker' to arguments
 def test_perform_tmx_backup_timeout(mocker, mock_config, no_op_callback):
     """Verify that the TMX backup polling correctly times out."""
     mock_session = MagicMock()
@@ -219,7 +243,6 @@ def test_perform_tmx_backup_timeout(mocker, mock_config, no_op_callback):
         headers={"Content-Type": "application/vnd.api+json"},
         json=lambda: {"data": {"attributes": {"status": "pending"}}},
     )
-    # Make time.time jump forward past the timeout
     mocker.patch("time.time", side_effect=[100, 501])
     logger = AppLogger(no_op_callback)
     result = sync_logic.perform_tmx_backup(
@@ -228,7 +251,10 @@ def test_perform_tmx_backup_timeout(mocker, mock_config, no_op_callback):
     assert result is False
 
 
-def test_upload_source_content_success(mock_session, mock_config, no_op_callback):
+# ADDED 'mocker' to arguments
+def test_upload_source_content_success(
+    mocker, mock_session, mock_config, no_op_callback
+):
     """Verify that a successful upload calls the Transifex API correctly."""
     mock_config["BACKUP_ENABLED"] = False
     templates = [{"email_template_id": "e123", "template_name": "Test"}]
@@ -281,35 +307,31 @@ def test_perform_tmx_backup_cancellation(mocker, mock_config, no_op_callback):
         sync_logic.perform_tmx_backup(
             mock_config, mock_tmx_session, logger, cancel_event
         )
-    # Corrected assertion: match the exact exception message
     assert str(excinfo.value) == "Sync process was cancelled by the user."
 
 
 def test_sync_main_handles_cancellation_during_backup(
-    mocker, mock_config, no_op_callback
+    mocker, mock_config, mock_app_logger
 ):
     """Verify sync logic logs cancellation and stops if backup is cancelled."""
     mock_config["BACKUP_ENABLED"] = True
     mocker.patch(
         "sync_logic.perform_tmx_backup",
-        side_effect=sync_logic.CancellationError(
-            "Backup cancelled."
-        ),  # This string doesn't actually matter because the error message is overwritten by the catch block's f-string.
+        side_effect=sync_logic.CancellationError("Backup cancelled."),
     )
-    logged_messages = []
+
     cancel_event = threading.Event()
-    sync_logic.sync_logic_main(mock_config, logged_messages.append, cancel_event)
-    # Corrected assertion: match the exact logged string from sync_logic_main
-    assert any(
-        "--- Sync process was cancelled by the user. ---" in msg
-        for msg in logged_messages
+    sync_logic.sync_logic_main(mock_config, no_op_callback, cancel_event)
+
+    mock_app_logger.info.assert_any_call(
+        "--- Sync process was cancelled by the user. ---"
     )
     mock_session_instance = mocker.patch("requests.Session").return_value
     mock_session_instance.get.assert_not_called()
 
 
 def test_sync_main_cancellation_during_braze_list_fetch(
-    mocker, mock_session, mock_config, no_op_callback
+    mocker, mock_session, mock_config, mock_app_logger
 ):
     """Verify sync logic halts when cancelled during Braze list fetching."""
     mock_config["BACKUP_ENABLED"] = False
@@ -327,19 +349,16 @@ def test_sync_main_cancellation_during_braze_list_fetch(
 
     mock_session.get.side_effect = braze_get_side_effect
 
-    logged_messages = []
-    sync_logic.sync_logic_main(mock_config, logged_messages.append, cancel_event)
+    sync_logic.sync_logic_main(mock_config, no_op_callback, cancel_event)
 
-    # Corrected assertion: match the exact logged string
-    assert any(
-        "--- Sync process was cancelled by the user. ---" in msg
-        for msg in logged_messages
+    mock_app_logger.info.assert_any_call(
+        "--- Sync process was cancelled by the user. ---"
     )
     assert mock_session.get.call_count == 1
 
 
 def test_sync_main_cancellation_during_braze_detail_fetch(
-    mocker, mock_session, mock_config, no_op_callback
+    mocker, mock_session, mock_config, mock_app_logger
 ):
     """Verify sync logic halts when cancelled during Braze detail fetching."""
     mock_config["BACKUP_ENABLED"] = False
@@ -364,23 +383,21 @@ def test_sync_main_cancellation_during_braze_detail_fetch(
 
     mocker.patch("sync_logic.check_for_cancel", side_effect=_mock_check_for_cancel)
 
-    logged_messages = []
+    # Patch AppLogger.info on the class to trigger cancellation and log
     mocker.patch.object(
         AppLogger,
         "info",
         side_effect=lambda msg: (
             "Fetching details for ID: temp_id_1" in msg
             and cancel_event.set()
-            and AppLogger(logged_messages.append).info(msg)
+            and mock_app_logger.info.real_mock(msg)
         ),
     )
 
-    sync_logic.sync_logic_main(mock_config, logged_messages.append, cancel_event)
+    sync_logic.sync_logic_main(mock_config, no_op_callback, cancel_event)
 
-    # Corrected assertion: match the exact logged string
-    assert any(
-        "--- Sync process was cancelled by the user. ---" in msg
-        for msg in logged_messages
+    mock_app_logger.info.assert_any_call(
+        "--- Sync process was cancelled by the user. ---"
     )
     assert mock_session.get.call_args_list[1][0][0] == (
         "https://rest.mock.braze.com/templates/email/info?email_template_id=temp_id_1"
@@ -410,7 +427,6 @@ def test_sync_main_handles_empty_braze_templates_list(
     )
 
     # Verify that no attempts were made to create/update Transifex resources
-    # (post and patch should not be called for resource creation/upload)
     post_calls = [
         c
         for c in mock_session.post.call_args_list
@@ -433,8 +449,8 @@ def test_sync_main_handles_empty_braze_content_blocks_list(
             },
         ),
         MagicMock(status_code=200, json=lambda: {"subject": "S1"}),
-        MagicMock(status_code=404),  # for template resource creation
-        MagicMock(status_code=200),  # for template resource post
+        MagicMock(status_code=404),
+        MagicMock(status_code=200),
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
     ]
     mock_session.post.return_value = MagicMock(status_code=201)
