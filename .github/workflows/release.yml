@@ -111,28 +111,30 @@ jobs:
           # Format: tufup targets add <app_version> <bundle_dir> <key_dirs>
           # Note: bundle_dir paths are relative to the *main workspace*,
           #       so we need to use a relative path back to 'artifacts'
-          tufup targets add "$APP_FULL_VERSION" \
+          # This includes 'yes |' for any unexpected interactive prompts.
+          yes | tufup targets add "$APP_FULL_VERSION" \
             "../artifacts/btx-sync-windows-latest/btx-sync.exe" \
-            "../keystore" # Added key_dirs as third positional argument
+            "../keystore"
           
-          tufup targets add "$APP_FULL_VERSION" \
+          yes | tufup targets add "$APP_FULL_VERSION" \
             "../artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" \
-            "../keystore" # Added key_dirs as third positional argument
+            "../keystore"
 
-          tufup targets add "$APP_FULL_VERSION" \
+          yes | tufup targets add "$APP_FULL_VERSION" \
             "../artifacts/btx-sync-ubuntu-latest/btx-sync" \
-            "../keystore" # Added key_dirs as third positional argument
+            "../keystore"
           
           # Sign the updated repository metadata roles separately
-          # Format: tufup sign <role_name> --keystore-dir <path_to_keystore>
+          # Format: tufup sign <role_name> <key_dirs> (positional, as --keystore-dir is not recognized)
+          # This includes 'yes |' for any unexpected interactive prompts.
           echo "Signing targets role..."
-          tufup sign targets --keystore-dir ../keystore
+          yes | tufup sign targets ../keystore
 
           echo "Signing snapshot role..."
-          tufup sign snapshot --keystore-dir ../keystore
+          yes | tufup sign snapshot ../keystore
 
           echo "Signing timestamp role..."
-          tufup sign timestamp --keystore-dir ../keystore
+          yes | tufup sign timestamp ../keystore
 
           popd # Change back to original directory
         env:
