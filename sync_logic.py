@@ -25,6 +25,15 @@ class CancellationError(Exception):
     pass
 
 
+# THIS FUNCTION HAS BEEN MOVED TO THE GLOBAL SCOPE
+def check_for_cancel(cancel_event: threading.Event) -> None:
+    """
+    Checks if the cancellation event is set and raises CancellationError if so.
+    """
+    if cancel_event.is_set():
+        raise CancellationError("Sync process was cancelled by the user.")
+
+
 def perform_tmx_backup(
     config: dict,
     transifex_session: requests.Session,
@@ -79,14 +88,11 @@ def perform_tmx_backup(
         timeout = time.time() + 300  # 5-minute timeout
         file_content = None
         while time.time() < timeout:
-            if cancel_event.is_set():
-                raise CancellationError("Backup process cancelled by user.")
-
+            check_for_cancel(cancel_event)  # <-- Call with cancel_event
             response = transifex_session.get(status_url, timeout=30)
             response.raise_for_status()
 
             try:
-                # First, try to parse the response as JSON
                 status_data = response.json()
                 status = status_data.get("data", {}).get("attributes", {}).get("status")
 
@@ -105,8 +111,6 @@ def perform_tmx_backup(
                 time.sleep(5)
 
             except json.JSONDecodeError:
-                # If it's not JSON, assume it's the file content itself.
-                # This handles cases where the status URL redirects to the download.
                 logger.info("  > Received non-JSON response, assuming TMX file.")
                 file_content = response.content
                 break
@@ -127,7 +131,6 @@ def perform_tmx_backup(
         return True
 
     except CancellationError:
-        # Re-raise to be caught by the main handler
         raise
     except requests.exceptions.RequestException as e:
         logger.fatal(f"A network error occurred while checking backup status: {e}")
@@ -145,10 +148,6 @@ def sync_logic_main(
     """
     logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
     logger.info("--- Starting Braze to Transifex Sync ---")
-
-    def check_for_cancel():
-        if cancel_event.is_set():
-            raise CancellationError("Sync process was cancelled by the user.")
 
     braze_session = requests.Session()
     braze_session.headers.update(
@@ -168,10 +167,9 @@ def sync_logic_main(
         offset = 0
         braze_rest_endpoint = config.get("BRAZE_REST_ENDPOINT")
         while True:
-            check_for_cancel()
+            check_for_cancel(cancel_event)  # <-- Call with cancel_event
             time.sleep(0.2)
 
-            # Construct URL without offset for the first page
             base_url = f"{braze_rest_endpoint}{endpoint}?limit={limit}"
             if offset > 0:
                 url = f"{base_url}&offset={offset}"
@@ -194,7 +192,7 @@ def sync_logic_main(
     def fetch_braze_item_details(
         endpoint: str, id_param_name: str, item_id: str
     ) -> dict:
-        check_for_cancel()
+        check_for_cancel(cancel_event)  # <-- Call with cancel_event
         time.sleep(0.2)
         braze_rest_endpoint = config.get("BRAZE_REST_ENDPOINT")
         url = f"{braze_rest_endpoint}{endpoint}?{id_param_name}={item_id}"
@@ -204,7 +202,7 @@ def sync_logic_main(
         return response.json()
 
     def create_or_update_transifex_resource(slug: str, name: str) -> None:
-        check_for_cancel()
+        check_for_cancel(cancel_event)  # <-- Call with cancel_event
         org = config.get("TRANSIFEX_ORGANIZATION_SLUG")
         proj = config.get("TRANSIFEX_PROJECT_SLUG")
         transifex_project_id = f"o:{org}:p:{proj}"
@@ -260,7 +258,7 @@ def sync_logic_main(
     def upload_source_content_to_transifex(
         content_dict: dict, resource_slug: str
     ) -> None:
-        check_for_cancel()
+        check_for_cancel(cancel_event)  # <-- Call with cancel_event
         if not content_dict:
             logger.info("  > No content to upload. Skipping.")
             return
@@ -287,7 +285,7 @@ def sync_logic_main(
             logger.info(f"  > Upload started for {len(content_dict)} string(s).")
 
     try:
-        check_for_cancel()
+        check_for_cancel(cancel_event)  # <-- Call with cancel_event
         if config.get("BACKUP_ENABLED", False):
             if not perform_tmx_backup(config, transifex_session, logger, cancel_event):
                 logger.info("\n--- Sync halted due to backup failure. ---")
@@ -296,10 +294,10 @@ def sync_logic_main(
         else:
             logger.info("TMX backup is disabled. Skipping.")
 
-        check_for_cancel()
+        check_for_cancel(cancel_event)  # <-- Call with cancel_event
         logger.info("\n[1] Processing Email Templates...")
         for template in fetch_braze_list("/templates/email/list", "templates"):
-            check_for_cancel()
+            check_for_cancel(cancel_event)  # <-- Call with cancel_event
             template_id = template.get("email_template_id")
             template_name = template.get("template_name")
             if not template_id or not template_name:
@@ -316,10 +314,10 @@ def sync_logic_main(
             }
             upload_source_content_to_transifex(content, resource_slug=template_id)
 
-        check_for_cancel()
+        check_for_cancel(cancel_event)  # <-- Call with cancel_event
         logger.info("\n[2] Processing Content Blocks...")
         for block in fetch_braze_list("/content_blocks/list", "content_blocks"):
-            check_for_cancel()
+            check_for_cancel(cancel_event)  # <-- Call with cancel_event
             block_id = block.get("content_block_id")
             block_name = block.get("name")
             if not block_id or not block_name:

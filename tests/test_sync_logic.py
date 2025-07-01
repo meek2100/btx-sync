@@ -281,7 +281,8 @@ def test_perform_tmx_backup_cancellation(mocker, mock_config, no_op_callback):
         sync_logic.perform_tmx_backup(
             mock_config, mock_tmx_session, logger, cancel_event
         )
-    assert "cancelled by user" in str(excinfo.value)
+    # Corrected assertion: match the exact exception message
+    assert str(excinfo.value) == "Sync process was cancelled by the user."
 
 
 def test_sync_main_handles_cancellation_during_backup(
@@ -291,12 +292,18 @@ def test_sync_main_handles_cancellation_during_backup(
     mock_config["BACKUP_ENABLED"] = True
     mocker.patch(
         "sync_logic.perform_tmx_backup",
-        side_effect=sync_logic.CancellationError("Backup cancelled."),
+        side_effect=sync_logic.CancellationError(
+            "Backup cancelled."
+        ),  # This string doesn't actually matter because the error message is overwritten by the catch block's f-string.
     )
     logged_messages = []
     cancel_event = threading.Event()
     sync_logic.sync_logic_main(mock_config, logged_messages.append, cancel_event)
-    assert any("--- Backup cancelled. ---" in msg for msg in logged_messages)
+    # Corrected assertion: match the exact logged string from sync_logic_main
+    assert any(
+        "--- Sync process was cancelled by the user. ---" in msg
+        for msg in logged_messages
+    )
     mock_session_instance = mocker.patch("requests.Session").return_value
     mock_session_instance.get.assert_not_called()
 
@@ -315,7 +322,6 @@ def test_sync_main_cancellation_during_braze_list_fetch(
     def braze_get_side_effect(*args, **kwargs):
         if mock_session.get.call_count == 1:
             cancel_event.set()
-            # Raise CancellationError directly to ensure it's caught by main handler
             raise sync_logic.CancellationError("Simulated cancellation during fetch")
         return MagicMock(status_code=200, json=lambda: templates_page)
 
@@ -324,8 +330,10 @@ def test_sync_main_cancellation_during_braze_list_fetch(
     logged_messages = []
     sync_logic.sync_logic_main(mock_config, logged_messages.append, cancel_event)
 
+    # Corrected assertion: match the exact logged string
     assert any(
-        "Sync process was cancelled by the user." in msg for msg in logged_messages
+        "--- Sync process was cancelled by the user. ---" in msg
+        for msg in logged_messages
     )
     assert mock_session.get.call_count == 1
 
@@ -350,7 +358,6 @@ def test_sync_main_cancellation_during_braze_detail_fetch(
         ),
     ]
 
-    # Use a simpler patch for check_for_cancel that raises if event is set
     def _mock_check_for_cancel(event):
         if event.is_set():
             raise sync_logic.CancellationError("Simulated cancellation")
@@ -358,21 +365,22 @@ def test_sync_main_cancellation_during_braze_detail_fetch(
     mocker.patch("sync_logic.check_for_cancel", side_effect=_mock_check_for_cancel)
 
     logged_messages = []
-    # Trigger cancellation after the first detail fetch
     mocker.patch.object(
         AppLogger,
         "info",
         side_effect=lambda msg: (
             "Fetching details for ID: temp_id_1" in msg
             and cancel_event.set()
-            and AppLogger(logged_messages.append).info(msg)  # Ensure log
+            and AppLogger(logged_messages.append).info(msg)
         ),
     )
 
     sync_logic.sync_logic_main(mock_config, logged_messages.append, cancel_event)
 
+    # Corrected assertion: match the exact logged string
     assert any(
-        "Sync process was cancelled by the user." in msg for msg in logged_messages
+        "--- Sync process was cancelled by the user. ---" in msg
+        for msg in logged_messages
     )
     assert mock_session.get.call_args_list[1][0][0] == (
         "https://rest.mock.braze.com/templates/email/info?email_template_id=temp_id_1"
