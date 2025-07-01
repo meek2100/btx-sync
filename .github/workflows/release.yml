@@ -13,6 +13,9 @@ jobs:
   build:
     name: Build Executables
     runs-on: ${{ matrix.os }}
+    # Define outputs for the build job here
+    outputs:
+      version: ${{ steps.set_version.outputs.version }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -31,9 +34,8 @@ jobs:
           SHORT_SHA=${GITHUB_SHA::7}
 
           # Read NEXT_RELEASE_VERSION and RELEASE_TYPE from constants.py
-          # CORRECTED: Use 'RELEASE_TYPE' directly from the imported module, not 'REL_TYPE' again.
           NEXT_VER=$(python -c "from constants import NEXT_RELEASE_VERSION; print(NEXT_RELEASE_VERSION)")
-          REL_TYPE=$(python -c "from constants import RELEASE_TYPE; print(RELEASE_TYPE)") 
+          REL_TYPE=$(python -c "from constants import RELEASE_TYPE; print(REL_TYPE)") 
           
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${{ github.ref_name }}
@@ -71,6 +73,9 @@ jobs:
     name: Process, Release and Deploy
     needs: build
     runs-on: ubuntu-latest
+    # Add environment variables here, populated from the 'build' job's outputs
+    env:
+      APP_FULL_VERSION_ENV: ${{ needs.build.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -93,22 +98,22 @@ jobs:
           # Ensure the 'repository' directory exists for tufup operations
           mkdir -p repository/metadata
 
-          # Get the version string from the 'build' job's output
-          APP_FULL_VERSION="${{ needs.build.outputs.version }}"
-          echo "Processing application version: $APP_FULL_VERSION"
+          # Access the version string from the environment variable
+          # APP_FULL_VERSION now comes from the job's env block
+          echo "Processing application version: $APP_FULL_VERSION_ENV"
 
           # Add targets (executables) to the TUF repository
-          tufup targets add "$APP_FULL_VERSION" \
+          tufup targets add "$APP_FULL_VERSION_ENV" \
             --path artifacts/btx-sync-windows-latest/btx-sync.exe \
             --keystore-dir keystore \
             --repository-dir repository
           
-          tufup targets add "$APP_FULL_VERSION" \
+          tufup targets add "$APP_FULL_VERSION_ENV" \
             --path artifacts/btx-sync-macos-latest/btx-sync-macOS.zip \
             --keystore-dir keystore \
             --repository-dir repository
 
-          tufup targets add "$APP_FULL_VERSION" \
+          tufup targets add "$APP_FULL_VERSION_ENV" \
             --path artifacts/btx-sync-ubuntu-latest/btx-sync \
             --keystore-dir keystore \
             --repository-dir repository
