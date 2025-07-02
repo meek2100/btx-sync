@@ -40,15 +40,12 @@ UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
 def check_for_updates(log_callback: callable, config: dict):
     """Checks for app updates using tufup and applies them."""
-    # Use the existing AppLogger for tiered logging
     logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
     logger.info("Checking for updates...")
 
-    # Create a dedicated directory for app data if it doesn't exist
     app_data_dir = Path.home() / f".{APP_NAME}"
     app_data_dir.mkdir(exist_ok=True)
 
-    # Define the required tufup paths
     metadata_dir = app_data_dir / "metadata"
     target_dir = app_data_dir / "targets"
 
@@ -64,7 +61,6 @@ def check_for_updates(log_callback: callable, config: dict):
             return
 
     try:
-        # Log the parameters being sent to the client in debug mode
         logger.debug(f"tufup.Client(app_name='{APP_NAME}')")
         logger.debug(f"tufup.Client(current_version='{APP_VERSION}')")
         logger.debug(f"tufup.Client(metadata_dir='{metadata_dir}')")
@@ -77,6 +73,8 @@ def check_for_updates(log_callback: callable, config: dict):
             target_dir=target_dir,
             metadata_base_url=f"{UPDATE_URL}",
             target_base_url=f"{UPDATE_URL}targets/",
+            # Add this line to allow alpha/dev builds
+            prerelease=True,
         )
 
         new_update = client.check_for_updates()
