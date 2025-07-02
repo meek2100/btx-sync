@@ -91,7 +91,7 @@ def check_for_updates(log_callback: callable, config: dict):
             logger.info("Application is up to date.")
 
     except Exception as e:
-        logger.error(f"Update check failed: {e}")
+        logger.error(f"Update check failed: {repr(e)}")
 
 
 class App(customtkinter.CTk):
