@@ -10,6 +10,7 @@ from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
 from tufup.client import Client
+from logger import AppLogger
 
 # Import from our other modules
 from constants import (
@@ -37,8 +38,12 @@ APP_NAME = "btx-sync"
 UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
 
-def check_for_updates(log_callback: callable):
+def check_for_updates(log_callback: callable, config: dict):
     """Checks for app updates using tufup and applies them."""
+    # Use the existing AppLogger for tiered logging
+    logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
+    logger.info("Checking for updates...")
+
     # Create a dedicated directory for app data if it doesn't exist
     app_data_dir = Path.home() / f".{APP_NAME}"
     app_data_dir.mkdir(exist_ok=True)
@@ -47,42 +52,46 @@ def check_for_updates(log_callback: callable):
     metadata_dir = app_data_dir / "metadata"
     target_dir = app_data_dir / "targets"
 
-    # On first run, the metadata dir won't exist, so we create it
-    # and copy the bundled root.json into it to bootstrap the trust chain.
     local_root_path = metadata_dir / "root.json"
     if not local_root_path.exists():
         try:
             bundled_root_path = resource_path("repository/metadata/root.json")
             metadata_dir.mkdir(exist_ok=True)
             shutil.copy(bundled_root_path, local_root_path)
+            logger.debug("Initial root.json copied to metadata directory.")
         except Exception as e:
-            log_callback(f"[ERROR] Failed to initialize update metadata: {e}")
+            logger.error(f"Failed to initialize update metadata: {e}")
             return
 
     try:
+        # Log the parameters being sent to the client in debug mode
+        logger.debug(f"tufup.Client(app_name='{APP_NAME}')")
+        logger.debug(f"tufup.Client(current_version='{APP_VERSION}')")
+        logger.debug(f"tufup.Client(metadata_dir='{metadata_dir}')")
+
         client = Client(
             app_name=APP_NAME,
             app_install_dir=Path(sys.executable).parent,
             current_version=APP_VERSION,
             metadata_dir=metadata_dir,
             target_dir=target_dir,
-            metadata_base_url=f"{UPDATE_URL}repository/",
-            target_base_url=f"{UPDATE_URL}repository/targets/",
+            metadata_base_url=f"{UPDATE_URL}",
+            target_base_url=f"{UPDATE_URL}targets/",
         )
-        log_callback("Checking for updates...")
+
         new_update = client.check_for_updates()
 
         if new_update:
-            log_callback(f"Update {new_update.version} found, downloading...")
+            logger.info(f"Update {new_update.version} found, downloading...")
             if new_update.download_and_install():
-                log_callback("Update successful. Restarting application...")
+                logger.info("Update successful. Restarting application...")
             else:
-                log_callback("[ERROR] Update download or installation failed.")
+                logger.error("Update download or installation failed.")
         else:
-            log_callback("Application is up to date.")
+            logger.info("Application is up to date.")
 
     except Exception as e:
-        log_callback(f"[ERROR] Update check failed: {e}")
+        logger.error(f"Update check failed: {e}")
 
 
 class App(customtkinter.CTk):
@@ -163,8 +172,9 @@ class App(customtkinter.CTk):
 
         config = self.get_current_config()
         if is_production_environment() and config.get("AUTO_UPDATE_ENABLED", True):
+            # Pass the config dictionary to the update thread
             update_thread = threading.Thread(
-                target=check_for_updates, args=(self.log_message,), daemon=True
+                target=check_for_updates, args=(self.log_message, config), daemon=True
             )
             update_thread.start()
         elif not is_production_environment():
