@@ -65,14 +65,12 @@ def test_fetch_braze_list_pagination(mock_session, mock_config):
     page1 = {"templates": page1_templates}
     page2 = {"templates": page2_templates}
 
-    # FIX: Extend side_effect to handle all subsequent API calls in sync_logic_main
-    # This prevents the mock from running out of responses.
     mock_responses = [
         # 1. Pagination calls for templates
         MagicMock(status_code=200, json=lambda: page1),
         MagicMock(status_code=200, json=lambda: page2),
     ]
-    # Add mocks for all detail, Transifex, and content block calls
+    # Add mocks for all detail and Transifex calls
     for _ in range(150):  # 100 on page 1, 50 on page 2
         mock_responses.extend(
             [
@@ -85,19 +83,17 @@ def test_fetch_braze_list_pagination(mock_session, mock_config):
         MagicMock(status_code=200, json=lambda: {"content_blocks": []})
     )
     mock_session.get.side_effect = mock_responses
-
-    # Mock post calls as well
     mock_session.post.return_value = MagicMock(status_code=201)
 
     sync_logic.sync_logic_main(
         mock_config, no_op_callback, threading.Event(), mock_progress_callback
     )
 
-    # FIX: Update expected calls to match the new client's behavior
+    # FIX: Update expected calls to match the correct application logic.
+    # The first call should NOT have an offset parameter.
     expected_calls = [
-        # The first call now correctly includes offset=0
         call(
-            "https://rest.mock.braze.com/templates/email/list?limit=100&offset=0",
+            "https://rest.mock.braze.com/templates/email/list?limit=100",
             timeout=30,
         ),
         call(
@@ -105,8 +101,6 @@ def test_fetch_braze_list_pagination(mock_session, mock_config):
             timeout=30,
         ),
     ]
-    # assert_has_calls checks if these calls appear in sequence,
-    # allowing other calls to exist around them.
     mock_session.get.assert_has_calls(expected_calls)
 
 
