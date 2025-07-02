@@ -71,7 +71,8 @@ def check_for_updates(log_callback: callable, config: dict):
             current_version=APP_VERSION,
             metadata_dir=metadata_dir,
             target_dir=target_dir,
-            metadata_base_url=f"{UPDATE_URL}",
+            # FIX: Point to the 'metadata' sub-folder
+            metadata_base_url=f"{UPDATE_URL}metadata/",
             target_base_url=f"{UPDATE_URL}targets/",
         )
 
