@@ -3,7 +3,7 @@
 # --- Application Versioning ---
 # Set this to the version number of your *next intended production release*.
 # This will be used for alpha/beta builds from the 'develop' branch.
-NEXT_RELEASE_VERSION = "0.0.7"
+NEXT_RELEASE_VERSION = "0.0.8"
 
 # Set the pre-release type for 'develop' branch builds ("alpha" or "beta")
 RELEASE_TYPE = "alpha"
