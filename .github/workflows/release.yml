@@ -168,6 +168,9 @@ jobs:
           asset_name: btx-sync-Linux
           asset_content_type: application/octet-stream
           
+      - name: Verify Repository Contents
+        run: ls -R repository
+      
       - name: Deploy Update Files to GitHub Pages
         if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/v')
         uses: peaceiris/actions-gh-pages@v3
