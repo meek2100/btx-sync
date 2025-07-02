@@ -4,6 +4,7 @@ import keyring
 import threading
 import tkinter
 import webbrowser
+import sys
 from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
@@ -37,12 +38,21 @@ UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
 def check_for_updates(log_callback: callable):
     """Checks for app updates using tufup and applies them."""
+    # Create a dedicated directory for app data if it doesn't exist
+    app_data_dir = Path.home() / f".{APP_NAME}"
+    app_data_dir.mkdir(exist_ok=True)
+
     try:
+        # The tufup client requires explicit paths for its operation.
+        # We use an application-specific directory in the user's home folder.
         client = Client(
             app_name=APP_NAME,
-            app_version=APP_VERSION,
+            app_install_dir=Path(sys.executable).parent,
+            current_version=APP_VERSION,
+            metadata_dir=app_data_dir / "metadata",
+            target_dir=app_data_dir / "targets",
             metadata_base_url=f"{UPDATE_URL}repository/",
-            targets_base_url=f"{UPDATE_URL}repository/targets/",
+            target_base_url=f"{UPDATE_URL}repository/targets/",
         )
         log_callback("Checking for updates...")
         new_update = client.check_for_updates()

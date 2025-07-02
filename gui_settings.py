@@ -12,7 +12,6 @@ from constants import (
     DEFAULT_AUTO_UPDATE_ENABLED,
     DEFAULT_BACKUP_ENABLED,
     DEFAULT_BACKUP_PATH_NAME,
-    DEFAULT_BRAZE_REST_ENDPOINT,
     DEFAULT_LOG_LEVEL,
     TRANSIFEX_API_BASE_URL,
 )
@@ -203,10 +202,10 @@ class SettingsWindow(customtkinter.CTkToplevel):
         self.transifex_api_token_entry.insert(
             0, keyring.get_password(SERVICE_NAME, "transifex_api_token") or ""
         )
+        # FIX: Change the fallback from the default constant to an empty string
         self.braze_endpoint_entry.insert(
             0,
-            keyring.get_password(SERVICE_NAME, "braze_endpoint")
-            or DEFAULT_BRAZE_REST_ENDPOINT,
+            keyring.get_password(SERVICE_NAME, "braze_endpoint") or "",
         )
         self.transifex_org_slug_entry.insert(
             0, keyring.get_password(SERVICE_NAME, "transifex_org") or ""
