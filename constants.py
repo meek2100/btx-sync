@@ -4,7 +4,7 @@
 # Set this to the version number of your *next intended production release*.
 NEXT_RELEASE_VERSION = "0.0.1"
 
-# Set the pre-release type for 'develop' branch builds ("alpha", "beta", or "rc")
+# Set the pre-release type for 'develop' branch builds ("alpha", "beta", or "rc").
 RELEASE_TYPE = "beta"
 
 # Default settings for the application.
