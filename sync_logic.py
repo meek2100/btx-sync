@@ -40,7 +40,15 @@ class BrazeClient:
         limit = 100
         while True:
             time.sleep(self.api_call_delay)
-            url = f"{self.base_url}{endpoint}?limit={limit}&offset={offset}"
+
+            # Restore the logic to handle the offset parameter correctly.
+            # The Braze API rejects `offset=0`.
+            base_url = f"{self.base_url}{endpoint}?limit={limit}"
+            if offset > 0:
+                url = f"{base_url}&offset={offset}"
+            else:
+                url = base_url
+
             self.logger.info(f"Fetching {list_key} from Braze: offset {offset}")
             response = self.session.get(url, timeout=30)
             response.raise_for_status()
@@ -57,7 +65,9 @@ class BrazeClient:
     def get_item_details(self, endpoint: str, item_id: str) -> dict[str, Any]:
         """Fetches detailed information for a single Braze item."""
         time.sleep(self.api_call_delay)
-        url = f"{self.base_url}{endpoint}?{endpoint.split('/')[-1]}_id={item_id}"
+        # The endpoint name (e.g., 'info') is used to construct the query param
+        id_param_name = endpoint.split("/")[-1] + "_id"
+        url = f"{self.base_url}{endpoint}?{id_param_name}={item_id}"
         self.logger.info(f"  > Fetching details for ID: {item_id}")
         response = self.session.get(url, timeout=30)
         response.raise_for_status()
