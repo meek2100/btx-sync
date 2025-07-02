@@ -77,7 +77,6 @@ jobs:
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
         run: |
           pip install tufup
-          # This directory will hold the final, combined repository for deployment
           mkdir -p deploy_repo
           
           # Create a backup of the shared keys
@@ -94,31 +93,36 @@ jobs:
           do
             echo "--- Processing platform: $PLATFORM ---"
             
-            # Create a clean workspace for each platform's TUF repository
-            rm -rf repository keystore .tufup-repo-config
-            mkdir -p keystore
-            cp keystore_backup/* keystore/
+            # Create a clean, isolated workspace for this platform's TUF repository
+            rm -rf temp_workspace
+            mkdir -p temp_workspace
+            cd temp_workspace
 
-            # Use the correct, pre-generated config file for this platform
-            cp "tufup-$PLATFORM.cfg" ".tufup-repo-config"
+            # Copy the correct pre-generated config file and keys
+            cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
+            mkdir -p keystore
+            cp ../keystore_backup/* keystore/
 
             # Add the artifact to this platform's TUF repository
             if [ "$PLATFORM" == "win" ]; then
-              tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-windows-latest/btx-sync.exe"
+              tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
             elif [ "$PLATFORM" == "mac" ]; then
-              tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip"
+              tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" "keystore"
             elif [ "$PLATFORM" == "linux" ]; then
-              tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-ubuntu-latest/btx-sync"
+              tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
             fi
             
             # Sign all roles for this platform's repository
-            tufup sign targets
-            tufup sign snapshot
-            tufup sign timestamp
-            tufup sign root
+            tufup sign targets keystore
+            tufup sign snapshot keystore
+            tufup sign timestamp keystore
+            tufup sign root keystore
 
             # Copy the results to the final deployment directory
-            cp -a repository/. deploy_repo/
+            cp -a repository/. ../deploy_repo/
+
+            # Go back to the root directory for the next loop
+            cd ..
           done
       
       - name: Verify Repository Contents
