@@ -79,7 +79,6 @@ jobs:
           pip install tufup
           mkdir -p deploy_repo
           
-          # Create a backup of the shared keys
           mkdir -p keystore_backup
           python -c "import os; f=open('keystore_backup/root', 'w'); f.write(os.environ['TUF_ROOT_KEY']); f.close()"
           python -c "import os; f=open('keystore_backup/snapshot', 'w'); f.write(os.environ['TUF_SNAPSHOT_KEY']); f.close()"
@@ -93,17 +92,14 @@ jobs:
           do
             echo "--- Processing platform: $PLATFORM ---"
             
-            # Create a clean, isolated workspace for this platform's TUF repository
             rm -rf temp_workspace
             mkdir -p temp_workspace
             cd temp_workspace
 
-            # Copy the correct pre-generated config file and keys
             cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
             mkdir -p keystore
             cp ../keystore_backup/* keystore/
 
-            # Add the artifact to this platform's TUF repository
             if [ "$PLATFORM" == "win" ]; then
               tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
             elif [ "$PLATFORM" == "mac" ]; then
@@ -112,16 +108,12 @@ jobs:
               tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
             fi
             
-            # Sign all roles for this platform's repository
+            tufup sign root keystore
             tufup sign targets keystore
             tufup sign snapshot keystore
             tufup sign timestamp keystore
-            tufup sign root keystore
 
-            # Copy the results to the final deployment directory
             cp -a repository/. ../deploy_repo/
-
-            # Go back to the root directory for the next loop
             cd ..
           done
       
