@@ -95,12 +95,16 @@ jobs:
             echo "--- Processing platform: $PLATFORM ---"
             
             rm -rf temp_workspace
-            mkdir -p temp_workspace/repository/metadata
+            mkdir -p temp_workspace
             cd temp_workspace
 
             cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
             mkdir -p keystore
             cp ../keystore_backup/* keystore/
+
+            # FIX: Explicitly create the directory structure tufup expects
+            mkdir -p repository/metadata
+            mkdir -p repository/targets
 
             if [ "$PLATFORM" == "win" ]; then
               tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
