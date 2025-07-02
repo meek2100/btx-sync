@@ -4,8 +4,8 @@ import keyring
 import threading
 import tkinter
 import webbrowser
-import shutil
 import sys
+import shutil
 from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
@@ -29,7 +29,7 @@ try:
     # This file is created by the build process (see release.yml)
     from version import __version__ as APP_VERSION  # type: ignore
 except ImportError:
-    # Fallback for local development: use constants.py with a fixed '-dev' suffix
+    # Fallback for local development
     APP_VERSION = f"{NEXT_RELEASE_VERSION}-dev"
 
 # --- Tufup Configuration ---
@@ -145,7 +145,7 @@ class App(customtkinter.CTk):
         self.more_menu.add_command(label="Settings", command=self.open_settings)
         self.more_menu.add_command(label="Help", command=self.open_help_file)
         self.more_menu.add_separator()
-        self.more_menu.add_command(label="Exit", command=self.destroy)
+        self.more_menu.add_command(label="About", command=self.open_about_window)
 
         self.right_click_menu = tkinter.Menu(
             self.log_box, tearoff=0, background="#2B2B2B", foreground="white"
@@ -220,6 +220,15 @@ class App(customtkinter.CTk):
         y = self.more_button.winfo_rooty() + self.more_button.winfo_height()
         self.more_menu.tk_popup(x, y)
 
+    def open_about_window(self):
+        """Displays an 'About' dialog with the application version."""
+        tkinter.messagebox.showinfo(
+            "About btx sync",
+            f"Version: {APP_VERSION}\n\n"
+            "A cross-platform desktop application for synchronizing content "
+            "from Braze to Transifex for translation.",
+        )
+
     def open_help_file(self):
         """Opens the README.md documentation file."""
         try:
@@ -252,7 +261,6 @@ class App(customtkinter.CTk):
 
     def update_status_label(self, message: str) -> None:
         """Updates the status label in the UI."""
-        # Ensure this is called on the main thread for UI updates
         self.after(0, self._update_status_label_gui, message)
 
     def _update_status_label_gui(self, message: str) -> None:
@@ -271,7 +279,7 @@ class App(customtkinter.CTk):
         self.run_button.pack_forget()
         self.cancel_button.pack(side="left", padx=10, pady=5)
         self.cancel_button.configure(state="normal")
-        self.status_label.configure(text="Running...")  # Initial state
+        self.status_label.configure(text="Running...")
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
@@ -282,7 +290,7 @@ class App(customtkinter.CTk):
                     config,
                     self.log_message,
                     self.cancel_event,
-                    self.update_status_label,  # Pass the new callback
+                    self.update_status_label,
                 )
             else:
                 self.log_message("--- CONFIGURATION ERROR ---")
@@ -290,9 +298,9 @@ class App(customtkinter.CTk):
             self.cancel_button.pack_forget()
             self.run_button.pack(side="left", padx=10, pady=5)
             status = "Cancelled" if self.cancel_event.is_set() else None
-            self.update_readiness_status()  # This resets to Ready/Config Required
+            self.update_readiness_status()
             if status:
-                self.status_label.configure(text=status)  # Overwrite if cancelled
+                self.status_label.configure(text=status)
             self.log_message("\n")
 
     def start_sync_thread(self):
