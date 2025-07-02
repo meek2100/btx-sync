@@ -4,6 +4,7 @@ import keyring
 import threading
 import tkinter
 import webbrowser
+import shutil
 import sys
 from pathlib import Path
 from PIL import Image
@@ -42,15 +43,29 @@ def check_for_updates(log_callback: callable):
     app_data_dir = Path.home() / f".{APP_NAME}"
     app_data_dir.mkdir(exist_ok=True)
 
+    # Define the required tufup paths
+    metadata_dir = app_data_dir / "metadata"
+    target_dir = app_data_dir / "targets"
+
+    # On first run, the metadata dir won't exist, so we create it
+    # and copy the bundled root.json into it to bootstrap the trust chain.
+    local_root_path = metadata_dir / "root.json"
+    if not local_root_path.exists():
+        try:
+            bundled_root_path = resource_path("repository/metadata/root.json")
+            metadata_dir.mkdir(exist_ok=True)
+            shutil.copy(bundled_root_path, local_root_path)
+        except Exception as e:
+            log_callback(f"[ERROR] Failed to initialize update metadata: {e}")
+            return
+
     try:
-        # The tufup client requires explicit paths for its operation.
-        # We use an application-specific directory in the user's home folder.
         client = Client(
             app_name=APP_NAME,
             app_install_dir=Path(sys.executable).parent,
             current_version=APP_VERSION,
-            metadata_dir=app_data_dir / "metadata",
-            target_dir=app_data_dir / "targets",
+            metadata_dir=metadata_dir,
+            target_dir=target_dir,
             metadata_base_url=f"{UPDATE_URL}repository/",
             target_base_url=f"{UPDATE_URL}repository/targets/",
         )
@@ -61,7 +76,6 @@ def check_for_updates(log_callback: callable):
             log_callback(f"Update {new_update.version} found, downloading...")
             if new_update.download_and_install():
                 log_callback("Update successful. Restarting application...")
-                # tufup handles the restart process automatically
             else:
                 log_callback("[ERROR] Update download or installation failed.")
         else:

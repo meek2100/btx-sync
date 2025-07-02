@@ -51,8 +51,8 @@ jobs:
           --name "btx-sync" 
           --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" 
           --add-data "assets${{ env.pathsep }}assets" 
-          --add-data "README.md${{ env.pathsep }}." 
-          app.py
+          --add-data "README.md${{ env.pathsep }}."
+          --add-data "repository/metadata/root.json${{ env.pathsep }}repository/metadata"
         env: { pathsep: "${{ runner.os == 'Windows' && ';' || ':' }}" }
       - name: Package macOS App
         if: runner.os == 'macOS'
