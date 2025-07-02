@@ -93,7 +93,7 @@ jobs:
             echo "--- Processing platform: $PLATFORM ---"
             
             rm -rf temp_workspace
-            mkdir -p temp_workspace
+            mkdir -p temp_workspace/repository/metadata
             cd temp_workspace
 
             cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
