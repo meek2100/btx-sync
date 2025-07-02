@@ -75,13 +75,13 @@ def check_for_updates(log_callback: callable, config: dict):
             target_base_url=f"{UPDATE_URL}targets/",
         )
 
-        # FIX: Pass the `pre` argument to allow for pre-releases.
-        # 'a' will include alpha, beta, and rc builds.
+        logger.debug(f"tufup.Client(current_version='{APP_VERSION}')")
         new_update = client.check_for_updates(pre="a")
 
         if new_update:
             logger.info(f"Update {new_update.version} found, downloading...")
-            if new_update.download_and_install():
+            # FIX: Call the update() method on the client object
+            if client.update():
                 logger.info("Update successful. Restarting application...")
             else:
                 logger.error("Update download or installation failed.")
