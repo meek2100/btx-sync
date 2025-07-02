@@ -71,12 +71,13 @@ def check_for_updates(log_callback: callable, config: dict):
             current_version=APP_VERSION,
             metadata_dir=metadata_dir,
             target_dir=target_dir,
-            # FIX: Point to the 'metadata' sub-folder
             metadata_base_url=f"{UPDATE_URL}metadata/",
             target_base_url=f"{UPDATE_URL}targets/",
         )
 
-        new_update = client.check_for_updates()
+        # FIX: Pass the `pre` argument to allow for pre-releases.
+        # 'a' will include alpha, beta, and rc builds.
+        new_update = client.check_for_updates(pre="a")
 
         if new_update:
             logger.info(f"Update {new_update.version} found, downloading...")
