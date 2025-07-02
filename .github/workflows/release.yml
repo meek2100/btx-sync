@@ -79,7 +79,7 @@ jobs:
   release:
     name: Process, Release and Deploy
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntu-latest]
     env:
       APP_FULL_VERSION_ENV: ${{ needs.build.outputs.version }}
     permissions:
