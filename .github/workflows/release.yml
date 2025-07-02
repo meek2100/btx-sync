@@ -57,8 +57,6 @@ jobs:
     name: Process, Release and Deploy
     needs: build
     runs-on: ubuntu-latest
-    env:
-      APP_FULL_VERSION_ENV: ${{ needs.build.outputs.version }}
     permissions:
       contents: write
     steps:
@@ -87,7 +85,7 @@ jobs:
           python -c "import os; f=open('keystore_backup/targets', 'w'); f.write(os.environ['TUF_TARGETS_KEY']); f.close()"
           python -c "import os; f=open('keystore_backup/timestamp', 'w'); f.write(os.environ['TUF_TIMESTAMP_KEY']); f.close()"
 
-          APP_FULL_VERSION="${{ env.APP_FULL_VERSION_ENV }}"
+          APP_FULL_VERSION="${{ needs.build.outputs.version }}"
           PLATFORMS="win mac linux"
 
           for PLATFORM in $PLATFORMS
@@ -97,16 +95,11 @@ jobs:
             rm -rf temp_workspace
             mkdir -p temp_workspace
             cd temp_workspace
-            
-            mkdir -p repository/metadata
-            mkdir -p repository/targets
 
             cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
             mkdir -p keystore
             cp ../keystore_backup/* keystore/
-
-            # FIX: Initialize the repository structure using the config file
-            tufup init
+            mkdir -p repository/targets
 
             if [ "$PLATFORM" == "win" ]; then
               tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
@@ -137,38 +130,19 @@ jobs:
           user_email: 'github-actions[bot]@users.noreply.github.com'
       
       - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          body: 'Download the application for your OS below.'
-          prerelease: ${{ contains(github.ref, 'a') || contains(github.ref, 'b') || contains(github.ref, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release create ${{ github.ref_name }}
+          --title "Release ${{ github.ref_name }}"
+          --notes "Download the application for your OS below."
+          --prerelease=${{ contains(github.ref, 'a') || contains(github.ref, 'b') || contains(github.ref, 'rc') }}
           
-      - name: Upload Windows Asset
-        uses: actions/upload-release-asset@v1
-        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/btx-sync-windows-latest/btx-sync.exe
-          asset_name: btx-sync-Windows.exe
-          asset_content_type: application/vnd.microsoft.portable-executable
-          
-      - name: Upload macOS Asset
-        uses: actions/upload-release-asset@v1
-        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/btx-sync-macos-latest/btx-sync-macOS.zip
-          asset_name: btx-sync-macOS.zip
-          asset_content_type: application/zip
-          
-      - name: Upload Linux Asset
-        uses: actions/upload-release-asset@v1
-        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/btx-sync-ubuntu-latest/btx-sync
-          asset_name: btx-sync-Linux
-          asset_content_type: application/octet-stream
+      - name: Upload Release Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release upload ${{ github.ref_name }}
+          ./artifacts/btx-sync-windows-latest/btx-sync.exe#btx-sync-Windows.exe
+          ./artifacts/btx-sync-macos-latest/btx-sync-macOS.zip#btx-sync-macOS.zip
+          ./artifacts/btx-sync-ubuntu-latest/btx-sync#btx-sync-Linux
