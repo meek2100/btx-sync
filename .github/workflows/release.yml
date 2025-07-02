@@ -31,12 +31,12 @@ jobs:
           BUILD_DATE=$(date +%Y%m%d)
           SHORT_SHA=${GITHUB_SHA::7}
           NEXT_VER=$(python -c "from constants import NEXT_RELEASE_VERSION; print(NEXT_RELEASE_VERSION)")
-          REL_TYPE=$(python -c "from constants import RELEASE_TYPE; print(RELEASE_TYPE)") 
           
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${{ github.ref_name }}
           elif [[ "${{ github.ref }}" == refs/heads/develop ]]; then
-            VERSION="${NEXT_VER}.${REL_TYPE}.${BUILD_DATE}.g${SHORT_SHA}" 
+            # Format: 0.0.8.dev20250702 (Standard development release)
+            VERSION="${NEXT_VER}.dev${BUILD_DATE}"
           else
             VERSION="0.0.0.dev.${BUILD_DATE}.g${SHORT_SHA}"
           fi
@@ -57,7 +57,6 @@ jobs:
         env: { pathsep: "${{ runner.os == 'Windows' && ';' || ':' }}" }
       - name: Package macOS App
         if: runner.os == 'macOS'
-        # Change directory into 'dist' so the zip archive doesn't contain parent folders
         run: (cd dist && zip -r btx-sync-macOS.zip btx-sync.app)
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
@@ -88,7 +87,6 @@ jobs:
         run: |
           mkdir -p bundle
           cp artifacts/btx-sync-windows-latest/btx-sync.exe bundle/
-          # On macOS, we now have a zip inside an artifact directory, so we must unzip it first
           unzip artifacts/btx-sync-macos-latest/btx-sync-macOS.zip -d bundle/
           cp artifacts/btx-sync-ubuntu-latest/btx-sync bundle/
 
@@ -169,4 +167,3 @@ jobs:
           publish_dir: ./repository
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
-          
