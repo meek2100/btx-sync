@@ -102,6 +102,7 @@ jobs:
           pip install tufup
           mkdir -p keystore repository
 
+          # Write the tufup configuration and keys from secrets
           python -c "import os; f=open('keystore/root', 'w'); f.write(os.environ['TUF_ROOT_KEY']); f.close()"
           python -c "import os; f=open('keystore/snapshot', 'w'); f.write(os.environ['TUF_SNAPSHOT_KEY']); f.close()"
           python -c "import os; f=open('keystore/targets', 'w'); f.write(os.environ['TUF_TARGETS_KEY']); f.close()"
@@ -110,15 +111,22 @@ jobs:
           APP_FULL_VERSION="${{ env.APP_FULL_VERSION_ENV }}"
           echo "Processing application version: $APP_FULL_VERSION"
 
-          # Add each build as a separate target with a unique, platform-specific app name
-          tufup --app-name "btx-sync-win" targets add "$APP_FULL_VERSION" "artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
-          tufup --app-name "btx-sync-mac" targets add "$APP_FULL_VERSION" "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" "keystore"
-          tufup --app-name "btx-sync-linux" targets add "$APP_FULL_VERSION" "artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
+          # --- Process Windows ---
+          echo "app_name: btx-sync-win" > .tufup-repo-config
+          tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
           
+          # --- Process macOS ---
+          echo "app_name: btx-sync-mac" > .tufup-repo-config
+          tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" "keystore"
+
+          # --- Process Linux ---
+          echo "app_name: btx-sync-linux" > .tufup-repo-config
+          tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
+
+          # --- Sign all metadata ---
+          # We only need to sign once after all targets are added
           echo "Signing all roles..."
-          tufup sign --app-name "btx-sync-win" --all
-          tufup sign --app-name "btx-sync-mac" --all
-          tufup sign --app-name "btx-sync-linux" --all
+          tufup sign --all
       
       - name: Verify Repository Contents
         run: ls -R repository
