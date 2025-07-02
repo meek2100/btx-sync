@@ -4,14 +4,12 @@ name: Build and Release
 
 on:
   push:
-    branches:
-      - 'develop'
+    # Trigger the workflow only on tags that start with 'v'
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+*'
+      - 'v*'
 
 jobs:
   build:
-    # This job remains the same
     name: Build Executables
     runs-on: ${{ matrix.os }}
     outputs:
@@ -22,27 +20,14 @@ jobs:
         python-version: ["3.10"]
     steps:
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
       - name: Set up Python
         uses: actions/setup-python@v5
         with: { python-version: "${{ matrix.python-version }}" }
       - name: Create Version File
         id: set_version
         run: |
-          BUILD_DATE=$(date +%Y%m%d)
-          NEXT_VER=$(python -c "from constants import NEXT_RELEASE_VERSION; print(NEXT_RELEASE_VERSION)")
-          REL_TYPE=$(python -c "from constants import RELEASE_TYPE; print(RELEASE_TYPE)")
-          PEP440_REL_TYPE='a'
-          if [ "$REL_TYPE" == "beta" ]; then
-            PEP440_REL_TYPE='b'
-          elif [ "$REL_TYPE" == "rc" ]; then
-            PEP440_REL_TYPE='rc'
-          fi
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION=${{ github.ref_name }}
-          else
-            VERSION="${NEXT_VER}${PEP440_REL_TYPE}${BUILD_DATE}"
-          fi
+          # The version is now taken directly from the git tag
+          VERSION=${{ github.ref_name }}
           echo "__version__ = '${VERSION#v}'" > version.py
           echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
         shell: bash
@@ -94,10 +79,9 @@ jobs:
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
         run: |
           pip install tufup
-          # This directory will hold the final, combined repository for deployment
           mkdir -p deploy_repo
           
-          # --- Create a backup of the shared keys ---
+          # Create a backup of the shared keys
           mkdir -p keystore_backup
           python -c "import os; f=open('keystore_backup/root', 'w'); f.write(os.environ['TUF_ROOT_KEY']); f.close()"
           python -c "import os; f=open('keystore_backup/snapshot', 'w'); f.write(os.environ['TUF_SNAPSHOT_KEY']); f.close()"
@@ -114,12 +98,13 @@ jobs:
             
             # Create a clean workspace for each platform
             rm -rf .tufup-repo-config repository keystore
-            mkdir -p repository keystore
+            mkdir -p keystore
             cp keystore_backup/* keystore/
 
-            # Initialize a unique tufup repository for this platform
-            tufup init --app-name "$APP_NAME"
-            
+            # Create the config file, then initialize the repo
+            echo "app_name: $APP_NAME" > .tufup-repo-config
+            tufup init
+
             # Add the correct artifact for the current platform
             if [ "$PLATFORM" == "win" ]; then
               tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
@@ -129,23 +114,61 @@ jobs:
               tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
             fi
 
-            # Sign all roles for this platform's repository
-            tufup sign --all
-
             # Copy the results to the final deployment directory
-            # The -a flag preserves attributes and handles recursion
             cp -a repository/. deploy_repo/
           done
+
+          # Sign all roles for the combined repository
+          echo "Signing all roles..."
+          cd deploy_repo
+          tufup sign targets ../keystore_backup
+          tufup sign snapshot ../keystore_backup
+          tufup sign timestamp ../keystore_backup
       
       - name: Verify Repository Contents
         run: ls -R deploy_repo
 
       - name: Deploy Update Files to GitHub Pages
-        if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/v')
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Deploy from the combined repository directory
           publish_dir: ./deploy_repo
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
+      
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          body: 'Download the application for your OS below.'
+          prerelease: ${{ contains(github.ref, 'a') || contains(github.ref, 'b') || contains(github.ref, 'rc') }}
+          
+      - name: Upload Windows Asset
+        uses: actions/upload-release-asset@v1
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/btx-sync-windows-latest/btx-sync.exe
+          asset_name: btx-sync-Windows.exe
+          asset_content_type: application/vnd.microsoft.portable-executable
+          
+      - name: Upload macOS Asset
+        uses: actions/upload-release-asset@v1
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/btx-sync-macos-latest/btx-sync-macOS.zip
+          asset_name: btx-sync-macOS.zip
+          asset_content_type: application/zip
+          
+      - name: Upload Linux Asset
+        uses: actions/upload-release-asset@v1
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/btx-sync-ubuntu-latest/btx-sync
+          asset_name: btx-sync-Linux
+          asset_content_type: application/octet-stream
