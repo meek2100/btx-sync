@@ -97,6 +97,9 @@ jobs:
             rm -rf temp_workspace
             mkdir -p temp_workspace
             cd temp_workspace
+            
+            mkdir -p repository/metadata
+            mkdir -p repository/targets
 
             cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
             mkdir -p keystore
