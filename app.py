@@ -11,7 +11,6 @@ from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
 from tufup.client import Client
-from logger import AppLogger
 
 # Import from our other modules
 from constants import (
@@ -19,20 +18,21 @@ from constants import (
     DEFAULT_BACKUP_ENABLED,
     DEFAULT_BACKUP_PATH_NAME,
     DEFAULT_LOG_LEVEL,
-    NEXT_RELEASE_VERSION,
 )
 from config import SERVICE_NAME
 from gui_settings import SettingsWindow
 from sync_logic import sync_logic_main
 from utils import resource_path, is_production_environment
+from logger import AppLogger
 
 # --- Dynamic Version Configuration ---
 try:
     # This file is created by the build process (see release.yml)
     from version import __version__ as APP_VERSION  # type: ignore
 except ImportError:
-    # Fallback for local development
-    APP_VERSION = f"{NEXT_RELEASE_VERSION}-dev"
+    # Fallback for local development. Since version is now controlled by git tags,
+    # we can just use a static development string here.
+    APP_VERSION = "0.0.0-dev"
 
 # --- Tufup Configuration ---
 APP_NAME = "btx-sync"
@@ -45,16 +45,16 @@ def check_for_updates(log_callback: callable, config: dict):
     logger.info("Checking for updates...")
 
     # Determine platform-specific app name
-    platform_name = platform.system().lower()
-    if platform_name == "windows":
+    platform_system = platform.system().lower()
+    if platform_system == "windows":
         platform_app_name = f"{APP_NAME}-win"
-    elif platform_name == "darwin":
+    elif platform_system == "darwin":
         platform_app_name = f"{APP_NAME}-mac"
     else:
         platform_app_name = f"{APP_NAME}-linux"
 
     logger.debug(
-        f"Platform detected: {platform_name}, using app name: {platform_app_name}"
+        f"Platform detected: {platform_system}, using app name: {platform_app_name}"
     )
 
     app_data_dir = Path.home() / f".{APP_NAME}"
@@ -73,7 +73,7 @@ def check_for_updates(log_callback: callable, config: dict):
             shutil.copy(bundled_root_path, local_root_path)
             logger.debug("Initial root.json copied to metadata directory.")
         except Exception as e:
-            logger.error(f"Failed to initialize update metadata: {e}")
+            logger.error(f"Failed to initialize update metadata: {repr(e)}")
             return
 
     try:
@@ -87,11 +87,7 @@ def check_for_updates(log_callback: callable, config: dict):
             target_base_url=f"{UPDATE_URL}targets/",
         )
 
-        logger.debug(f"tufup.Client(app_name='{APP_NAME}')")
         logger.debug(f"tufup.Client(current_version='{APP_VERSION}')")
-        logger.debug(f"tufup.Client(metadata_dir='{metadata_dir}')")
-        logger.debug(f"tufup.Client(target_dir='{target_dir}')")
-
         new_update = client.check_for_updates(pre="a")
 
         if new_update:
@@ -185,7 +181,6 @@ class App(customtkinter.CTk):
 
         config = self.get_current_config()
         if is_production_environment() and config.get("AUTO_UPDATE_ENABLED", True):
-            # Pass the config dictionary to the update thread
             update_thread = threading.Thread(
                 target=check_for_updates, args=(self.log_message, config), daemon=True
             )
