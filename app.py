@@ -49,11 +49,14 @@ def check_for_updates(log_callback: callable, config: dict):
     metadata_dir = app_data_dir / "metadata"
     target_dir = app_data_dir / "targets"
 
+    # Ensure both the metadata and targets directories exist
+    metadata_dir.mkdir(exist_ok=True)
+    target_dir.mkdir(exist_ok=True)
+
     local_root_path = metadata_dir / "root.json"
     if not local_root_path.exists():
         try:
             bundled_root_path = resource_path("repository/metadata/root.json")
-            metadata_dir.mkdir(exist_ok=True)
             shutil.copy(bundled_root_path, local_root_path)
             logger.debug("Initial root.json copied to metadata directory.")
         except Exception as e:
@@ -74,6 +77,8 @@ def check_for_updates(log_callback: callable, config: dict):
         logger.debug(f"tufup.Client(app_name='{APP_NAME}')")
         logger.debug(f"tufup.Client(current_version='{APP_VERSION}')")
         logger.debug(f"tufup.Client(metadata_dir='{metadata_dir}')")
+        logger.debug(f"tufup.Client(target_dir='{target_dir}')")
+
         new_update = client.check_for_updates(pre="a")
 
         if new_update:
