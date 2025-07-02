@@ -11,6 +11,7 @@ on:
 
 jobs:
   build:
+    # This job remains the same
     name: Build Executables
     runs-on: ${{ matrix.os }}
     outputs:
@@ -29,25 +30,18 @@ jobs:
         id: set_version
         run: |
           BUILD_DATE=$(date +%Y%m%d)
-          SHORT_SHA=${GITHUB_SHA::7}
           NEXT_VER=$(python -c "from constants import NEXT_RELEASE_VERSION; print(NEXT_RELEASE_VERSION)")
           REL_TYPE=$(python -c "from constants import RELEASE_TYPE; print(RELEASE_TYPE)")
-          
-          # Map full release type to its PEP 440 equivalent ('alpha' -> 'a', etc.)
-          PEP440_REL_TYPE='a' # Default to alpha
+          PEP440_REL_TYPE='a'
           if [ "$REL_TYPE" == "beta" ]; then
             PEP440_REL_TYPE='b'
           elif [ "$REL_TYPE" == "rc" ]; then
             PEP440_REL_TYPE='rc'
           fi
-          
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${{ github.ref_name }}
-          elif [[ "${{ github.ref }}" == refs/heads/develop ]]; then
-            # Create a standard pre-release version, e.g., "0.0.9a20250702"
-            VERSION="${NEXT_VER}${PEP440_REL_TYPE}${BUILD_DATE}"
           else
-            VERSION="0.0.0.dev.${BUILD_DATE}.g${SHORT_SHA}"
+            VERSION="${NEXT_VER}${PEP440_REL_TYPE}${BUILD_DATE}"
           fi
           echo "__version__ = '${VERSION#v}'" > version.py
           echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
@@ -92,7 +86,7 @@ jobs:
         uses: actions/setup-python@v5
         with: { python-version: "3.10" }
 
-      - name: Initialize, Sign, and Process Packages with tufup
+      - name: Initialize, Sign, and Process Packages
         env:
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
@@ -100,42 +94,58 @@ jobs:
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
         run: |
           pip install tufup
-          mkdir -p keystore repository
-
-          # Write the tufup configuration and keys from secrets
-          python -c "import os; f=open('keystore/root', 'w'); f.write(os.environ['TUF_ROOT_KEY']); f.close()"
-          python -c "import os; f=open('keystore/snapshot', 'w'); f.write(os.environ['TUF_SNAPSHOT_KEY']); f.close()"
-          python -c "import os; f=open('keystore/targets', 'w'); f.write(os.environ['TUF_TARGETS_KEY']); f.close()"
-          python -c "import os; f=open('keystore/timestamp', 'w'); f.write(os.environ['TUF_TIMESTAMP_KEY']); f.close()"
+          # This directory will hold the final, combined repository for deployment
+          mkdir -p deploy_repo
+          
+          # --- Create a backup of the shared keys ---
+          mkdir -p keystore_backup
+          python -c "import os; f=open('keystore_backup/root', 'w'); f.write(os.environ['TUF_ROOT_KEY']); f.close()"
+          python -c "import os; f=open('keystore_backup/snapshot', 'w'); f.write(os.environ['TUF_SNAPSHOT_KEY']); f.close()"
+          python -c "import os; f=open('keystore_backup/targets', 'w'); f.write(os.environ['TUF_TARGETS_KEY']); f.close()"
+          python -c "import os; f=open('keystore_backup/timestamp', 'w'); f.write(os.environ['TUF_TIMESTAMP_KEY']); f.close()"
 
           APP_FULL_VERSION="${{ env.APP_FULL_VERSION_ENV }}"
-          echo "Processing application version: $APP_FULL_VERSION"
+          PLATFORMS="win mac linux"
 
-          # --- Process Windows ---
-          echo "app_name: btx-sync-win" > .tufup-repo-config
-          tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
-          
-          # --- Process macOS ---
-          echo "app_name: btx-sync-mac" > .tufup-repo-config
-          tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" "keystore"
+          for PLATFORM in $PLATFORMS
+          do
+            echo "--- Processing platform: $PLATFORM ---"
+            APP_NAME="btx-sync-$PLATFORM"
+            
+            # Create a clean workspace for each platform
+            rm -rf .tufup-repo-config repository keystore
+            mkdir -p repository keystore
+            cp keystore_backup/* keystore/
 
-          # --- Process Linux ---
-          echo "app_name: btx-sync-linux" > .tufup-repo-config
-          tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
+            # Initialize a unique tufup repository for this platform
+            tufup init --app-name "$APP_NAME"
+            
+            # Add the correct artifact for the current platform
+            if [ "$PLATFORM" == "win" ]; then
+              tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
+            elif [ "$PLATFORM" == "mac" ]; then
+              tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" "keystore"
+            elif [ "$PLATFORM" == "linux" ]; then
+              tufup targets add "$APP_FULL_VERSION" "artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
+            fi
 
-          # --- Sign all metadata ---
-          # We only need to sign once after all targets are added
-          echo "Signing all roles..."
-          tufup sign --all
+            # Sign all roles for this platform's repository
+            tufup sign --all
+
+            # Copy the results to the final deployment directory
+            # The -a flag preserves attributes and handles recursion
+            cp -a repository/. deploy_repo/
+          done
       
       - name: Verify Repository Contents
-        run: ls -R repository
+        run: ls -R deploy_repo
 
       - name: Deploy Update Files to GitHub Pages
         if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/v')
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./repository
+          # Deploy from the combined repository directory
+          publish_dir: ./deploy_repo
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
