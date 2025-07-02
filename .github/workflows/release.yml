@@ -55,12 +55,16 @@ jobs:
           --add-data "repository/metadata/root.json${{ env.pathsep }}repository/metadata" 
           app.py
         env: { pathsep: "${{ runner.os == 'Windows' && ';' || ':' }}" }
+      - name: Package macOS App
+        if: runner.os == 'macOS'
+        # Change directory into 'dist' so the zip archive doesn't contain parent folders
+        run: (cd dist && zip -r btx-sync-macOS.zip btx-sync.app)
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: btx-sync-${{ matrix.os }}
           path: |
-            ${{ runner.os == 'macOS' && 'dist/btx-sync.app' || '' }}
+            ${{ runner.os == 'macOS' && 'dist/btx-sync-macOS.zip' || '' }}
             ${{ runner.os == 'Windows' && 'dist/btx-sync.exe' || '' }}
             ${{ runner.os == 'Linux' && 'dist/btx-sync' || '' }}
 
@@ -85,7 +89,7 @@ jobs:
           mkdir -p bundle
           cp artifacts/btx-sync-windows-latest/btx-sync.exe bundle/
           # On macOS, we now have a zip inside an artifact directory, so we must unzip it first
-          unzip artifacts/btx-sync-macos-latest/btx-sync.app -d bundle/
+          unzip artifacts/btx-sync-macos-latest/btx-sync-macOS.zip -d bundle/
           cp artifacts/btx-sync-ubuntu-latest/btx-sync bundle/
 
       - name: Initialize, Sign, and Process Packages with tufup
