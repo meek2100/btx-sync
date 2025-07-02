@@ -31,12 +31,21 @@ jobs:
           BUILD_DATE=$(date +%Y%m%d)
           SHORT_SHA=${GITHUB_SHA::7}
           NEXT_VER=$(python -c "from constants import NEXT_RELEASE_VERSION; print(NEXT_RELEASE_VERSION)")
+          REL_TYPE=$(python -c "from constants import RELEASE_TYPE; print(RELEASE_TYPE)")
+          
+          # Map full release type to its PEP 440 equivalent ('alpha' -> 'a', etc.)
+          PEP440_REL_TYPE='a' # Default to alpha
+          if [ "$REL_TYPE" == "beta" ]; then
+            PEP440_REL_TYPE='b'
+          elif [ "$REL_TYPE" == "rc" ]; then
+            PEP440_REL_TYPE='rc'
+          fi
           
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${{ github.ref_name }}
           elif [[ "${{ github.ref }}" == refs/heads/develop ]]; then
-            # Format: 0.0.8.dev20250702 (Standard development release)
-            VERSION="${NEXT_VER}.dev${BUILD_DATE}"
+            # Create a standard pre-release version, e.g., "0.0.9a20250702"
+            VERSION="${NEXT_VER}${PEP440_REL_TYPE}${BUILD_DATE}"
           else
             VERSION="0.0.0.dev.${BUILD_DATE}.g${SHORT_SHA}"
           fi

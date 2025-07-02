@@ -2,8 +2,10 @@
 
 # --- Application Versioning ---
 # Set this to the version number of your *next intended production release*.
-# This will be used for development builds from the 'develop' branch.
 NEXT_RELEASE_VERSION = "0.0.1"
+
+# Set the pre-release type for 'develop' branch builds ("alpha", "beta", or "rc")
+RELEASE_TYPE = "alpha"
 
 # Default settings for the application.
 # These values are used when no setting is found in the OS keychain.
