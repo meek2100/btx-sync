@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import MagicMock
 import keyring
+import requests
 
 from gui_settings import SettingsWindow, SERVICE_NAME
 
@@ -12,6 +13,9 @@ class SettingsLogicContainer:
     load_settings = SettingsWindow.load_settings
     confirm_and_reset = SettingsWindow.confirm_and_reset
     browse_directory = SettingsWindow.browse_directory
+    test_connections = SettingsWindow.test_connections
+    _test_braze_connection = SettingsWindow._test_braze_connection
+    _test_transifex_connection = SettingsWindow._test_transifex_connection
 
 
 @pytest.fixture
@@ -113,3 +117,41 @@ def test_confirm_and_reset_cancelled(settings_logic, mocker):
     )  # Simulate user clicking "No"
     settings_logic.confirm_and_reset()
     keyring.delete_password.assert_not_called()
+
+
+def test_test_braze_connection_success(settings_logic, mocker):
+    """Verify that a successful Braze connection returns a SUCCESS status."""
+    mocker.patch("requests.Session.get").return_value = MagicMock(
+        status_code=200, raise_for_status=lambda: None
+    )
+    status, msg = settings_logic._test_braze_connection("key", "endpoint")
+    assert status == "SUCCESS"
+
+
+def test_test_braze_connection_failure(settings_logic, mocker):
+    """Verify that a failed Braze connection returns a FAILED status."""
+    mock_response = MagicMock(status_code=401)
+    mocker.patch("requests.Session.get").side_effect = requests.exceptions.HTTPError(
+        response=mock_response
+    )
+    status, msg = settings_logic._test_braze_connection("key", "endpoint")
+    assert status == "FAILED"
+
+
+def test_test_transifex_connection_success(settings_logic, mocker):
+    """Verify that a successful Transifex connection returns a SUCCESS status."""
+    mocker.patch("requests.Session.get").return_value = MagicMock(
+        status_code=200, raise_for_status=lambda: None
+    )
+    status, msg = settings_logic._test_transifex_connection("token", "org", "proj")
+    assert status == "SUCCESS"
+
+
+def test_test_transifex_connection_failure(settings_logic, mocker):
+    """Verify that a failed Transifex connection returns a FAILED status."""
+    mock_response = MagicMock(status_code=404)
+    mocker.patch("requests.Session.get").side_effect = requests.exceptions.HTTPError(
+        response=mock_response
+    )
+    status, msg = settings_logic._test_transifex_connection("token", "org", "proj")
+    assert status == "FAILED"

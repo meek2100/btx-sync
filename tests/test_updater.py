@@ -54,3 +54,15 @@ def test_update_download_fails(mock_tufup_client):
     assert "[ERROR] Update download or installation failed." in "\n".join(
         logged_messages
     )
+
+
+def test_check_for_updates_uses_prerelease_channel(mock_tufup_client):
+    """
+    Verify that the check_for_updates function enables the pre-release channel.
+    """
+    logged_messages = []
+    # Act: Run the function
+    check_for_updates(logged_messages.append, {"LOG_LEVEL": "Normal"})
+    # Assert: Verify that the `check_for_updates` method on the client
+    # instance was called with the correct `pre` argument.
+    mock_tufup_client.check_for_updates.assert_called_once_with(pre="a")

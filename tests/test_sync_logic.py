@@ -307,3 +307,71 @@ def test_upload_source_content_success(mock_session, mock_config):
     upload_call = mock_session.post.call_args_list[1]
     upload_payload = json.loads(upload_call.kwargs["data"])
     assert '"subject": "Hello"' in upload_payload["data"]["attributes"]["content"]
+
+
+def test_sync_cancels_during_long_process(mock_session, mock_config, mocker):
+    """
+    Verify that the sync process halts if the cancel event is set during operation.
+    """
+    cancel_event = threading.Event()
+    templates = [
+        {"email_template_id": f"id_{i}", "template_name": f"t_{i}"} for i in range(10)
+    ]
+
+    # Arrange: Mock the POST call to start the backup job
+    mock_session.post.return_value = MagicMock(
+        status_code=200, json=lambda: {"data": {"id": "job1"}}
+    )
+
+    # Arrange: Mock the separate GET call that downloads the TMX file
+    mocker.patch("requests.get").return_value = MagicMock(
+        status_code=200, content=b"<tmx></tmx>"
+    )
+
+    # Arrange: This smart side_effect function will handle all GET calls
+    # made through the main session object.
+    call_count = 0
+
+    def session_get_router(url, **kwargs):
+        nonlocal call_count
+        # 1. TMX backup status check
+        if "tmx_async_downloads" in url:
+            return MagicMock(
+                status_code=200,
+                headers={"Content-Type": "application/vnd.api+json"},
+                json=lambda: {
+                    "data": {
+                        "attributes": {"status": "completed"},
+                        "links": {"download": "http://mock.url/download"},
+                    }
+                },
+            )
+        # 2. Braze template list
+        elif "/templates/email/list" in url:
+            return MagicMock(status_code=200, json=lambda: {"templates": templates})
+        # 3. Transifex resource check
+        elif "transifex.com/resources" in url:
+            # The simplest successful path is for the resource not to exist
+            return MagicMock(status_code=404)
+        # 4. Braze item details check
+        elif "/templates/email/info" in url:
+            call_count += 1
+            if call_count > 5:
+                cancel_event.set()
+            return MagicMock(status_code=200, json=lambda: {"subject": "Test"})
+        # Fallback for any other unexpected GET
+        else:
+            return MagicMock(status_code=404)
+
+    mock_session.get.side_effect = session_get_router
+
+    logged_messages = []
+
+    # Act
+    sync_logic.sync_logic_main(
+        mock_config, logged_messages.append, cancel_event, mock_progress_callback
+    )
+
+    # Assert
+    full_log = "".join(logged_messages)
+    assert "Sync process was cancelled by the user" in full_log
