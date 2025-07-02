@@ -73,8 +73,6 @@ def check_for_updates(log_callback: callable, config: dict):
             target_dir=target_dir,
             metadata_base_url=f"{UPDATE_URL}",
             target_base_url=f"{UPDATE_URL}targets/",
-            # Add this line to allow alpha/dev builds
-            prerelease=True,
         )
 
         new_update = client.check_for_updates()
