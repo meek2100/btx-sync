@@ -5,7 +5,7 @@
 NEXT_RELEASE_VERSION = "0.0.1"
 
 # Set the pre-release type for 'develop' branch builds ("alpha", "beta", or "rc").
-RELEASE_TYPE = "beta"
+RELEASE_TYPE = "alpha"
 
 # Default settings for the application.
 # These values are used when no setting is found in the OS keychain.

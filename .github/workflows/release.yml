@@ -92,13 +92,6 @@ jobs:
         uses: actions/setup-python@v5
         with: { python-version: "3.10" }
 
-      - name: Create Bundle Directory
-        run: |
-          mkdir -p bundle
-          cp artifacts/btx-sync-windows-latest/btx-sync.exe bundle/
-          unzip artifacts/btx-sync-macos-latest/btx-sync-macOS.zip -d bundle/
-          cp artifacts/btx-sync-ubuntu-latest/btx-sync bundle/
-
       - name: Initialize, Sign, and Process Packages with tufup
         env:
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
@@ -107,7 +100,7 @@ jobs:
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
         run: |
           pip install tufup
-          mkdir -p keystore repository/targets
+          mkdir -p keystore repository
 
           python -c "import os; f=open('keystore/root', 'w'); f.write(os.environ['TUF_ROOT_KEY']); f.close()"
           python -c "import os; f=open('keystore/snapshot', 'w'); f.write(os.environ['TUF_SNAPSHOT_KEY']); f.close()"
@@ -117,60 +110,19 @@ jobs:
           APP_FULL_VERSION="${{ env.APP_FULL_VERSION_ENV }}"
           echo "Processing application version: $APP_FULL_VERSION"
 
-          tufup targets add "$APP_FULL_VERSION" "bundle" "keystore"
+          # Add each build as a separate target with a unique, platform-specific app name
+          tufup --app-name "btx-sync-win" targets add "$APP_FULL_VERSION" "artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
+          tufup --app-name "btx-sync-mac" targets add "$APP_FULL_VERSION" "artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" "keystore"
+          tufup --app-name "btx-sync-linux" targets add "$APP_FULL_VERSION" "artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
           
-          echo "Signing targets role..."
-          tufup sign targets keystore
-
-          echo "Signing snapshot role..."
-          tufup sign snapshot keystore
-
-          echo "Signing timestamp role..."
-          tufup sign timestamp keystore
+          echo "Signing all roles..."
+          tufup sign --app-name "btx-sync-win" --all
+          tufup sign --app-name "btx-sync-mac" --all
+          tufup sign --app-name "btx-sync-linux" --all
       
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        id: create_release
-        uses: actions/create-release@v1
-        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          body: 'Download the application for your OS below.'
-          
-      - name: Upload Windows Asset
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-release-asset@v1
-        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/btx-sync-windows-latest/btx-sync.exe
-          asset_name: btx-sync-Windows.exe
-          asset_content_type: application/vnd.microsoft.portable-executable
-          
-      - name: Upload macOS Asset
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-release-asset@v1
-        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/btx-sync-macos-latest/btx-sync-macOS.zip
-          asset_name: btx-sync-macOS.zip
-          asset_content_type: application/zip
-          
-      - name: Upload Linux Asset
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-release-asset@v1
-        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./artifacts/btx-sync-ubuntu-latest/btx-sync
-          asset_name: btx-sync-Linux
-          asset_content_type: application/octet-stream
-          
       - name: Verify Repository Contents
         run: ls -R repository
-      
+
       - name: Deploy Update Files to GitHub Pages
         if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/tags/v')
         uses: peaceiris/actions-gh-pages@v3

@@ -6,6 +6,7 @@ import tkinter
 import webbrowser
 import sys
 import shutil
+import platform
 from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
@@ -43,13 +44,25 @@ def check_for_updates(log_callback: callable, config: dict):
     logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
     logger.info("Checking for updates...")
 
+    # Determine platform-specific app name
+    platform_name = platform.system().lower()
+    if platform_name == "windows":
+        platform_app_name = f"{APP_NAME}-win"
+    elif platform_name == "darwin":
+        platform_app_name = f"{APP_NAME}-mac"
+    else:
+        platform_app_name = f"{APP_NAME}-linux"
+
+    logger.debug(
+        f"Platform detected: {platform_name}, using app name: {platform_app_name}"
+    )
+
     app_data_dir = Path.home() / f".{APP_NAME}"
     app_data_dir.mkdir(exist_ok=True)
 
     metadata_dir = app_data_dir / "metadata"
     target_dir = app_data_dir / "targets"
 
-    # Ensure both the metadata and targets directories exist
     metadata_dir.mkdir(exist_ok=True)
     target_dir.mkdir(exist_ok=True)
 
@@ -65,7 +78,7 @@ def check_for_updates(log_callback: callable, config: dict):
 
     try:
         client = Client(
-            app_name=APP_NAME,
+            app_name=platform_app_name,
             app_install_dir=Path(sys.executable).parent,
             current_version=APP_VERSION,
             metadata_dir=metadata_dir,
