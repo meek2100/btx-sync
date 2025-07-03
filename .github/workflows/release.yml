@@ -71,59 +71,61 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - name: Install tufup
-        run: python -m pip install tufup==0.9.0
 
-      - name: Create Keystore from Secrets
+      - name: Process and Sign All Platforms
         env:
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
           TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_PRIVATE_KEY }}
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
         run: |
+          set -e
+          pip install tufup==0.9.0
+          
           mkdir -p keystore
           echo "$TUF_ROOT_KEY" > keystore/root
           echo "$TUF_SNAPSHOT_KEY" > keystore/snapshot
           echo "$TUF_TARGETS_KEY" > keystore/targets
           echo "$TUF_TIMESTAMP_KEY" > keystore/timestamp
 
-      - name: Process and Sign Platforms
-        run: |
-          set -e
           APP_VERSION="${{ needs.build.outputs.app_version }}"
           PLATFORMS="win:windows-latest mac:macos-latest linux:ubuntu-latest"
 
           for platform_info in $PLATFORMS; do
             IFS=':' read -r p_suffix p_os <<< "$platform_info"
             echo "--- Processing platform: $p_suffix ---"
+
+            rm -rf temp_workspace
+            mkdir -p temp_workspace
+            cd temp_workspace
+
+            # 1. Create the required repository and keystore subdirectories
+            mkdir -p repository/metadata repository/targets
+            cp -r ../keystore ./
+
+            # 2. **CRUCIAL FIX**: Copy the base JSON config and use `jq` to update the app_name
+            #    This assumes your base config file is named `.tufup-repo-config` in the project root.
+            jq --arg new_name "btx-sync-$p_suffix" '.app_name = $new_name' ../.tufup-repo-config > ./.tufup-repo-config
+
+            # 3. Manually place the initial metadata files
+            cp ../repository/metadata/root.json ./repository/metadata/
+            echo '{}' > ./repository/metadata/targets.json
+            echo '{}' > ./repository/metadata/snapshot.json
+            echo '{}' > ./repository/metadata/timestamp.json
+
+            # 4. Run tufup commands from the workspace root
+            tufup targets add "$APP_VERSION" "../artifacts/btx-sync-$p_os" keystore
             
-            # Define absolute paths for directories
-            REPO_DIR_ABS="$(pwd)/deploy_repo/$p_suffix"
-            BUNDLE_DIR_ABS="$(pwd)/artifacts/btx-sync-$p_os"
-            KEYSTORE_PATH_ABS="$(pwd)/keystore"
-            ROOT_JSON_ABS="$(pwd)/repository/metadata/root.json"
-
-            # Create the repository structure
-            mkdir -p "$REPO_DIR_ABS/metadata"
-            cp "$ROOT_JSON_ABS" "$REPO_DIR_ABS/metadata/"
-
-            # Create the config file inside the new repository directory
-            CONFIG_FILE="$REPO_DIR_ABS/.tufup-repo-config"
-            echo "[tufup]" > $CONFIG_FILE
-            echo "app_name = btx-sync-$p_suffix" >> $CONFIG_FILE
-
-            # Change into the repository directory before running tufup
-            cd "$REPO_DIR_ABS"
-            
-            # Run tufup commands, using absolute paths to the BUNDLE DIRECTORY and keystore
-            tufup targets add "$APP_VERSION" "$BUNDLE_DIR_ABS" "$KEYSTORE_PATH_ABS"
-
+            # 5. Sign all roles
             for role in root targets snapshot timestamp; do
-              tufup sign "$role" "$KEYSTORE_PATH_ABS"
+              tufup sign "$role" keystore
             done
+
+            # 6. Copy the completed repository to the final deployment directory
+            mkdir -p ../deploy_repo/$p_suffix
+            cp -a ./repository/. ../deploy_repo/$p_suffix/
             
-            # Return to the original directory
-            cd -
+            cd ..
           done
       
       - name: Verify Repository Contents
