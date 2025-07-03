@@ -23,6 +23,31 @@ DEFAULT_AUTO_UPDATE_ENABLED = True
 EMAIL_TRANSLATABLE_FIELDS = ["subject", "preheader", "body"]
 BLOCK_TRANSLATABLE_FIELDS = ["content"]
 
+# --- Settings Keys ---
+# Centralized keys for managing settings in the OS keychain.
+KEY_BRAZE_API = "braze_api_key"
+KEY_TX_API = "transifex_api_token"
+KEY_BRAZE_ENDPOINT = "braze_endpoint"
+KEY_TX_ORG = "transifex_org"
+KEY_TX_PROJECT = "transifex_project"
+KEY_BACKUP_PATH = "backup_path"
+KEY_LOG_LEVEL = "log_level"
+KEY_BACKUP_ENABLED = "backup_enabled"
+KEY_AUTO_UPDATE = "auto_update_enabled"
+
+# A single list of all managed keys, used for functions like resetting defaults.
+MANAGED_SETTINGS_KEYS = [
+    KEY_BRAZE_API,
+    KEY_TX_API,
+    KEY_BRAZE_ENDPOINT,
+    KEY_TX_ORG,
+    KEY_TX_PROJECT,
+    KEY_BACKUP_PATH,
+    KEY_LOG_LEVEL,
+    KEY_BACKUP_ENABLED,
+    KEY_AUTO_UPDATE,
+]
+
 # --- Development Flags ---
 # Set to True to enable the auto-update check when running from source code.
 # This is useful for testing the update process locally.

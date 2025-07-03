@@ -7,6 +7,7 @@ import webbrowser
 import sys
 import shutil
 import platform
+from tkinter import messagebox
 from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
@@ -19,6 +20,11 @@ from constants import (
     DEFAULT_BACKUP_ENABLED,
     DEFAULT_BACKUP_PATH_NAME,
     DEFAULT_LOG_LEVEL,
+    MANAGED_SETTINGS_KEYS,
+    KEY_BACKUP_ENABLED,
+    KEY_AUTO_UPDATE,
+    KEY_LOG_LEVEL,
+    KEY_BACKUP_PATH,
 )
 from config import SERVICE_NAME
 from gui_settings import SettingsWindow
@@ -28,11 +34,8 @@ from logger import AppLogger
 
 # --- Dynamic Version Configuration ---
 try:
-    # This file is created by the build process (see release.yml)
     from version import __version__ as APP_VERSION  # type: ignore
 except ImportError:
-    # Fallback for local development. Since version is now controlled by git tags,
-    # we can just use a static development string here.
     APP_VERSION = "0.0.0-dev"
 
 # --- Tufup Configuration ---
@@ -42,8 +45,8 @@ UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
 def check_for_updates(app_instance):
     """
-    Checks for app updates and displays a notification bar if a new version
-    is found, instead of immediately applying the update.
+    Checks for app updates and triggers the GUI notification if a new version
+    is found. It stores the tufup client instance for later use.
     """
     logger = AppLogger(
         app_instance.log_message,
@@ -64,7 +67,6 @@ def check_for_updates(app_instance):
 
     app_data_dir = Path.home() / f".{APP_NAME}"
     app_data_dir.mkdir(exist_ok=True)
-
     metadata_dir = app_data_dir / "metadata"
     target_dir = app_data_dir / "targets"
     metadata_dir.mkdir(exist_ok=True)
@@ -97,6 +99,7 @@ def check_for_updates(app_instance):
 
         if new_update:
             logger.info(f"Update {new_update.version} found.")
+            app_instance.tufup_client = client
             app_instance.show_update_notification(new_update)
         else:
             logger.info("Application is up to date.")
@@ -113,7 +116,6 @@ class App(customtkinter.CTk):
         self.geometry("800x600")
         self.iconbitmap(resource_path("assets/icon.ico"))
         self.grid_columnconfigure(0, weight=1)
-        # Configure grid rows for update bar, controls, and log box
         self.grid_rowconfigure(2, weight=1)
 
         # --- UPDATE NOTIFICATION FRAME ---
@@ -127,6 +129,7 @@ class App(customtkinter.CTk):
         )
         self.update_button.pack(side="right", padx=10, pady=5)
         self.new_update_info = None
+        self.tufup_client = None
 
         # --- CONTROL FRAME ---
         self.control_frame = customtkinter.CTkFrame(self, height=50)
@@ -196,8 +199,6 @@ class App(customtkinter.CTk):
         self.update_readiness_status()
 
         config = self.get_current_config()
-
-        # Determine if the update check should run
         in_prod = is_production_environment()
         prod_update_enabled = in_prod and config.get("AUTO_UPDATE_ENABLED", True)
         dev_update_enabled = not in_prod and DEV_AUTO_UPDATE_ENABLED
@@ -223,28 +224,26 @@ class App(customtkinter.CTk):
         update_thread.start()
 
     def threaded_apply(self):
-        platform_system = platform.system().lower()
-        platform_suffix = (
-            "win"
-            if platform_system == "windows"
-            else "mac"
-            if platform_system == "darwin"
-            else "linux"
-        )
-        platform_app_name = f"{APP_NAME}-{platform_suffix}"
-        app_data_dir = Path.home() / f".{APP_NAME}"
+        """Uses the stored client instance to apply the update."""
+        if not self.tufup_client:
+            self.log_message("[ERROR] Update client not initialized.")
+            self.update_button.configure(state="normal", text="Install Now")
+            return
 
-        client = Client(
-            app_name=platform_app_name,
-            app_install_dir=Path(sys.executable).parent,
-            current_version=APP_VERSION,
-            metadata_dir=app_data_dir / "metadata",
-            target_dir=app_data_dir / "targets",
-            metadata_base_url=f"{UPDATE_URL}{platform_suffix}/metadata/",
-            target_base_url=f"{UPDATE_URL}{platform_suffix}/targets/",
-        )
+        # Add `force=True` to bypass the installation path safety check
+        # that occurs when running in a local development environment.
+        if self.tufup_client.download_and_apply_update(
+            target=self.new_update_info, confirm=False, force=True
+        ):
+            self.log_message("Update successful. Please restart the application.")
+        else:
+            self.log_message("[ERROR] Update failed.")
+            self.update_button.configure(state="normal", text="Install Now")
+            return
 
-        if client.download_and_apply_update(target=self.new_update_info, confirm=False):
+        if self.tufup_client.download_and_apply_update(
+            target=self.new_update_info, confirm=False
+        ):
             self.log_message("Update successful. Please restart the application.")
         else:
             self.log_message("[ERROR] Update failed.")
@@ -253,7 +252,6 @@ class App(customtkinter.CTk):
     def force_update_check(self):
         """Starts the update check process manually, triggered by the user."""
         self.log_message("\n--- Manual update check initiated ---")
-        # Reuse the same check_for_updates function in a new thread
         update_thread = threading.Thread(
             target=check_for_updates, args=(self,), daemon=True
         )
@@ -263,31 +261,23 @@ class App(customtkinter.CTk):
         """
         Loads all settings from the system keychain and returns them as a dict.
         """
-        keys_to_load = [
-            "braze_api_key",
-            "transifex_api_token",
-            "braze_endpoint",
-            "transifex_org",
-            "transifex_project",
-            "backup_path",
-            "log_level",
-            "backup_enabled",
-            "auto_update_enabled",
-        ]
-        defaults = {
-            "backup_path": str(Path.home() / DEFAULT_BACKUP_PATH_NAME),
-            "log_level": DEFAULT_LOG_LEVEL,
-            "backup_enabled": str(int(DEFAULT_BACKUP_ENABLED)),
-            "auto_update_enabled": str(int(DEFAULT_AUTO_UPDATE_ENABLED)),
-        }
         config = {}
-        for key in keys_to_load:
-            config[key.upper()] = keyring.get_password(
-                SERVICE_NAME, key
-            ) or defaults.get(key, "")
+        for key in MANAGED_SETTINGS_KEYS:
+            config[key.upper()] = keyring.get_password(SERVICE_NAME, key)
 
-        config["BACKUP_ENABLED"] = config["BACKUP_ENABLED"] == "1"
-        config["AUTO_UPDATE_ENABLED"] = config["AUTO_UPDATE_ENABLED"] == "1"
+        if not config.get(KEY_BACKUP_PATH.upper()):
+            config[KEY_BACKUP_PATH.upper()] = str(
+                Path.home() / DEFAULT_BACKUP_PATH_NAME
+            )
+        if not config.get(KEY_LOG_LEVEL.upper()):
+            config[KEY_LOG_LEVEL.upper()] = DEFAULT_LOG_LEVEL
+        if config.get(KEY_BACKUP_ENABLED.upper()) is None:
+            config[KEY_BACKUP_ENABLED.upper()] = str(int(DEFAULT_BACKUP_ENABLED))
+        if config.get(KEY_AUTO_UPDATE.upper()) is None:
+            config[KEY_AUTO_UPDATE.upper()] = str(int(DEFAULT_AUTO_UPDATE_ENABLED))
+
+        config["BACKUP_ENABLED"] = config[KEY_BACKUP_ENABLED.upper()] == "1"
+        config["AUTO_UPDATE_ENABLED"] = config[KEY_AUTO_UPDATE.upper()] == "1"
         return config
 
     def update_readiness_status(self):
@@ -300,14 +290,12 @@ class App(customtkinter.CTk):
         self.status_label.configure(text=f"{base_status}{debug_suffix}")
 
     def show_more_menu(self):
-        """Displays the 'more options' pop-up menu."""
         x = self.more_button.winfo_rootx()
         y = self.more_button.winfo_rooty() + self.more_button.winfo_height()
         self.more_menu.tk_popup(x, y)
 
     def open_about_window(self):
-        """Displays an 'About' dialog with the application version."""
-        tkinter.messagebox.showinfo(
+        messagebox.showinfo(
             "About btx sync",
             f"Version: {APP_VERSION}\n\n"
             "A cross-platform desktop application for synchronizing content "
@@ -315,26 +303,22 @@ class App(customtkinter.CTk):
         )
 
     def open_help_file(self):
-        """Opens the README.md documentation file."""
         try:
             readme_path = resource_path("README.md")
             webbrowser.open(f"file://{readme_path}")
         except Exception as e:
-            tkinter.messagebox.showerror("Error", f"Could not open help file.\n\n{e}")
+            messagebox.showerror("Error", f"Could not open help file.\n\n{e}")
 
     def show_right_click_menu(self, event):
-        """Displays the right-click menu at the cursor's position."""
         self.right_click_menu.tk_popup(event.x_root, event.y_root)
 
     def copy_log_text(self):
-        """Copies the selected text from the log box to the clipboard."""
         try:
             self.clipboard_append(self.log_box.get("sel.first", "sel.last"))
         except tkinter.TclError:
             pass
 
     def select_all_log_text(self):
-        """Selects all text in the log box."""
         self.log_box.tag_add("sel", "1.0", "end")
         return "break"
 
@@ -345,17 +329,14 @@ class App(customtkinter.CTk):
         self.log_box.see("end")
 
     def update_status_label(self, message: str) -> None:
-        """Updates the status label in the UI."""
         self.after(0, self._update_status_label_gui, message)
 
     def _update_status_label_gui(self, message: str) -> None:
-        """Internal helper to update the status label on the GUI thread."""
         config = self.get_current_config()
         debug_suffix = " (Debug)" if config.get("LOG_LEVEL") == "Debug" else ""
         self.status_label.configure(text=f"Running: {message}{debug_suffix}")
 
     def cancel_sync(self):
-        """Sets the cancellation event to stop the sync thread."""
         self.status_label.configure(text="Cancelling...")
         self.cancel_button.configure(state="disabled")
         self.cancel_event.set()
