@@ -91,15 +91,15 @@ jobs:
         run: |
           set -e
           APP_VERSION="${{ needs.build.outputs.app_version }}"
-          PLATFORMS="win:windows-latest:btx-sync.exe mac:macos-latest:btx-sync-macOS.zip linux:ubuntu-latest:btx-sync"
+          PLATFORMS="win:windows-latest mac:macos-latest linux:ubuntu-latest"
 
           for platform_info in $PLATFORMS; do
-            IFS=':' read -r p_suffix p_os p_artifact <<< "$platform_info"
+            IFS=':' read -r p_suffix p_os <<< "$platform_info"
             echo "--- Processing platform: $p_suffix ---"
             
-            # Define absolute paths for directories and files
+            # Define absolute paths for directories
             REPO_DIR_ABS="$(pwd)/deploy_repo/$p_suffix"
-            ARTIFACT_PATH_ABS="$(pwd)/artifacts/btx-sync-$p_os/$p_artifact"
+            BUNDLE_DIR_ABS="$(pwd)/artifacts/btx-sync-$p_os"
             KEYSTORE_PATH_ABS="$(pwd)/keystore"
             ROOT_JSON_ABS="$(pwd)/repository/metadata/root.json"
 
@@ -115,8 +115,8 @@ jobs:
             # Change into the repository directory before running tufup
             cd "$REPO_DIR_ABS"
             
-            # Run tufup commands, using absolute paths to the artifact and keystore
-            tufup targets add "$APP_VERSION" "$ARTIFACT_PATH_ABS" "$KEYSTORE_PATH_ABS"
+            # Run tufup commands, using absolute paths to the BUNDLE DIRECTORY and keystore
+            tufup targets add "$APP_VERSION" "$BUNDLE_DIR_ABS" "$KEYSTORE_PATH_ABS"
 
             for role in root targets snapshot timestamp; do
               tufup sign "$role" "$KEYSTORE_PATH_ABS"
