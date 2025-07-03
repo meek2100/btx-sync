@@ -67,9 +67,6 @@ jobs:
         uses: actions/setup-python@v5
         with: { python-version: "3.10" }
 
-      - name: Install tufup
-        run: pip install tufup
-
       - name: Process and Sign All Platforms
         env:
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
@@ -77,8 +74,13 @@ jobs:
           TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_PRIVATE_KEY }}
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
         run: |
+          set -e # Exit immediately if a command exits with a non-zero status.
+          pip install tufup
+          
+          # This directory will hold the final, combined repository for deployment
           mkdir -p deploy_repo
           
+          # Create a backup of the shared keys
           mkdir -p keystore_backup
           python -c "import os; f=open('keystore_backup/root', 'w'); f.write(os.environ['TUF_ROOT_KEY']); f.close()"
           python -c "import os; f=open('keystore_backup/snapshot', 'w'); f.write(os.environ['TUF_SNAPSHOT_KEY']); f.close()"
@@ -92,32 +94,35 @@ jobs:
           do
             echo "--- Processing platform: $PLATFORM ---"
             
+            # Create a clean, isolated workspace for this platform's TUF repository
             rm -rf temp_workspace
             mkdir -p temp_workspace
             cd temp_workspace
             mkdir -p repository/targets
             mkdir -p repository/metadata
 
+            # Copy the correct pre-generated config file and keys
             cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
             mkdir -p keystore
             cp ../keystore_backup/* keystore/
 
+            # Add the artifact for the current platform, using the correct relative path
             if [ "$PLATFORM" == "win" ]; then
-              tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
+              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-windows-latest/btx-sync.exe"
             elif [ "$PLATFORM" == "mac" ]; then
-              tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" "keystore"
+              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-macos-latest/btx-sync-macOS.zip"
             elif [ "$PLATFORM" == "linux" ]; then
-              tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
+              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-ubuntu-latest/btx-sync"
             fi
             
-            tufup sign root keystore
-            tufup sign targets keystore
-            tufup sign snapshot keystore
-            tufup sign timestamp keystore
+            # Sign all roles for this platform's repository
+            tufup sign --all
 
             # Copy this platform's repository into its own subdirectory
             mkdir -p ../deploy_repo/$PLATFORM
             cp -a repository/. ../deploy_repo/$PLATFORM/
+            
+            # Go back to the root directory for the next loop
             cd ..
           done
       
