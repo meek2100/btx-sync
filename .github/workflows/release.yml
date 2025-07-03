@@ -96,23 +96,30 @@ jobs:
             IFS=':' read -r p_suffix p_os <<< "$platform_info"
             echo "--- Processing platform: $p_suffix ---"
 
+            # Define absolute paths for directories
+            ROOT_ABS="$(pwd)"
+            
             rm -rf temp_workspace
             mkdir -p temp_workspace
             cd temp_workspace
 
             # 1. Create the required repository and keystore subdirectories
             mkdir -p repository/metadata repository/targets
-            cp -r ../keystore ./
+            cp -r $ROOT_ABS/keystore ./
 
             # 2. Copy the base JSON config and use `jq` to update the app_name
             #    This assumes your base config file is named `.tufup-repo-config` in the project root.
-            jq --arg new_name "btx-sync-$p_suffix" '.app_name = $new_name' ../.tufup-repo-config > ./.tufup-repo-config
+            jq --arg new_name "btx-sync-$p_suffix" '.app_name = $new_name' $ROOT_ABS/.tufup-repo-config > ./.tufup-repo-config
+
+            echo "---Validate config is setup properly---"
+            code_val=$(jq -r '.app_name' <<< ./.tufup-repo-config)
+            echo "JQ Lookup of app new name for the app_name field is: $code_val and we were expecting it to be: btx-sync-$p_suffix"
 
             # 3. Copy ALL existing metadata from the project's repository.
-            cp -a ../repository/metadata/. ./repository/metadata/
+            cp -a $ROOT_ABS/repository/metadata/. ./repository/metadata/
 
             # 4. Add the new application bundle to the repository.
-            tufup targets add "$APP_VERSION" "../artifacts/btx-sync-$p_os" keystore
+            tufup targets add "$APP_VERSION" "$ROOT_ABS/artifacts/btx-sync-$p_os" keystore
             
             # 5. Sign all roles to commit the new target.
             for role in root targets snapshot timestamp; do
@@ -121,9 +128,9 @@ jobs:
 
             # 6. Copy the completed repository to the final deployment directory.
             mkdir -p ../deploy_repo/$p_suffix
-            cp -a ./repository/. ../deploy_repo/$p_suffix/
+            cp -a ./repository/. $ROOT_ABS/deploy_repo/$p_suffix/
             
-            cd ..
+            cd $ROOT_ABS
           done
       
       - name: Verify Repository Contents
