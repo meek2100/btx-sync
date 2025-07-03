@@ -92,7 +92,10 @@ def check_for_updates(log_callback: callable, config: dict):
 
         if new_update:
             logger.info(f"Update {new_update.version} found, downloading...")
-            if client.download_and_apply_update(target=new_update):
+
+            # Pass confirm=False to prevent the updater from requiring console input,
+            # which resolves the 'lost sys.stdin' error in a GUI application.
+            if client.download_and_apply_update(target=new_update, confirm=False):
                 logger.info("Update successful. Restarting application...")
             else:
                 logger.error("Update download or installation failed.")
