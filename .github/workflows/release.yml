@@ -94,29 +94,29 @@ jobs:
           do
             echo "--- Processing platform: $PLATFORM ---"
             
-            # Create a clean, isolated workspace for this platform's TUF repository
             rm -rf temp_workspace
-            mkdir -p temp_workspace
-            cd temp_workspace
-            mkdir -p repository/targets
-            mkdir -p repository/metadata
+            mkdir -p temp_workspace && cd temp_workspace
 
-            # Copy the correct pre-generated config file and keys
             cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
-            mkdir -p keystore
+            mkdir -p keystore repository/targets repository/metadata
             cp ../keystore_backup/* keystore/
-
-            # Add the artifact for the current platform, using the correct relative path
+            
+            # This creates the necessary directory structure non-interactively
+            # by using the --create-keystore-and-repo-dirs flag, although it is
+            # now redundant due to the mkdir commands above, it is harmless.
             if [ "$PLATFORM" == "win" ]; then
-              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-windows-latest/btx-sync.exe"
+              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
             elif [ "$PLATFORM" == "mac" ]; then
-              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-macos-latest/btx-sync-macOS.zip"
+              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" "keystore"
             elif [ "$PLATFORM" == "linux" ]; then
-              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-ubuntu-latest/btx-sync"
+              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
             fi
             
             # Sign all roles for this platform's repository
-            tufup sign --all
+            tufup sign root keystore
+            tufup sign targets keystore
+            tufup sign snapshot keystore
+            tufup sign timestamp keystore
 
             # Copy this platform's repository into its own subdirectory
             mkdir -p ../deploy_repo/$PLATFORM
