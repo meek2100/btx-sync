@@ -102,7 +102,6 @@ jobs:
             mkdir -p keystore
             cp ../keystore_backup/* keystore/
             
-            # This creates the necessary directory structure
             tufup init
 
             if [ "$PLATFORM" == "win" ]; then
@@ -118,7 +117,9 @@ jobs:
             tufup sign snapshot keystore
             tufup sign timestamp keystore
 
-            cp -a repository/. ../deploy_repo/
+            # Copy this platform's repository into its own subdirectory
+            mkdir -p ../deploy_repo/$PLATFORM
+            cp -a repository/. ../deploy_repo/$PLATFORM/
             cd ..
           done
       

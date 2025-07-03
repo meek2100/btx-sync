@@ -44,18 +44,16 @@ def check_for_updates(log_callback: callable, config: dict):
     logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
     logger.info("Checking for updates...")
 
-    # Determine platform-specific app name
     platform_system = platform.system().lower()
     if platform_system == "windows":
-        platform_app_name = f"{APP_NAME}-win"
+        platform_suffix = "win"
     elif platform_system == "darwin":
-        platform_app_name = f"{APP_NAME}-mac"
+        platform_suffix = "mac"
     else:
-        platform_app_name = f"{APP_NAME}-linux"
+        platform_suffix = "linux"
 
-    logger.debug(
-        f"Platform detected: {platform_system}, using app name: {platform_app_name}"
-    )
+    platform_app_name = f"{APP_NAME}-{platform_suffix}"
+    logger.debug(f"Platform: {platform_system}, App Name: {platform_app_name}")
 
     app_data_dir = Path.home() / f".{APP_NAME}"
     app_data_dir.mkdir(exist_ok=True)
@@ -71,20 +69,22 @@ def check_for_updates(log_callback: callable, config: dict):
         try:
             bundled_root_path = resource_path("repository/metadata/root.json")
             shutil.copy(bundled_root_path, local_root_path)
-            logger.debug("Initial root.json copied to metadata directory.")
+            logger.debug("Initial root.json copied.")
         except Exception as e:
             logger.error(f"Failed to initialize update metadata: {repr(e)}")
             return
 
     try:
+        # Construct URLs that point to the platform-specific subdirectories
+        platform_update_url = f"{UPDATE_URL}{platform_suffix}/"
         client = Client(
             app_name=platform_app_name,
             app_install_dir=Path(sys.executable).parent,
             current_version=APP_VERSION,
             metadata_dir=metadata_dir,
             target_dir=target_dir,
-            metadata_base_url=f"{UPDATE_URL}metadata/",
-            target_base_url=f"{UPDATE_URL}targets/",
+            metadata_base_url=f"{platform_update_url}metadata/",
+            target_base_url=f"{platform_update_url}targets/",
         )
 
         logger.debug(f"tufup.Client(current_version='{APP_VERSION}')")
