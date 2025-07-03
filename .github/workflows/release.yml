@@ -115,6 +115,7 @@ jobs:
             pwd
             ls -l
             cd ../../temp_workspace
+            pwd
             ls -l
             
             # This creates the necessary directory structure non-interactively
@@ -128,6 +129,22 @@ jobs:
               tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
             fi
             
+            cd repository
+            pwd
+            ls -l
+            cd metadata
+            pwd
+            ls -l
+            cd ../targets
+            pwd ls -l
+            cd ../../
+            pwd
+            ls -l
+            
+
+
+
+
             # Sign all roles for this platform's repository
             tufup sign root keystore
             tufup sign targets keystore
