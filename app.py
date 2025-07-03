@@ -14,6 +14,7 @@ from tufup.client import Client
 
 # Import from our other modules
 from constants import (
+    DEV_AUTO_UPDATE_ENABLED,
     DEFAULT_AUTO_UPDATE_ENABLED,
     DEFAULT_BACKUP_ENABLED,
     DEFAULT_BACKUP_PATH_NAME,
@@ -39,9 +40,15 @@ APP_NAME = "btx-sync"
 UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
 
-def check_for_updates(log_callback: callable, config: dict):
-    """Checks for app updates using tufup and applies them."""
-    logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
+def check_for_updates(app_instance):
+    """
+    Checks for app updates and displays a notification bar if a new version
+    is found, instead of immediately applying the update.
+    """
+    logger = AppLogger(
+        app_instance.log_message,
+        app_instance.get_current_config().get("LOG_LEVEL", "Normal"),
+    )
     logger.info("Checking for updates...")
 
     platform_system = platform.system().lower()
@@ -60,7 +67,6 @@ def check_for_updates(log_callback: callable, config: dict):
 
     metadata_dir = app_data_dir / "metadata"
     target_dir = app_data_dir / "targets"
-
     metadata_dir.mkdir(exist_ok=True)
     target_dir.mkdir(exist_ok=True)
 
@@ -75,7 +81,6 @@ def check_for_updates(log_callback: callable, config: dict):
             return
 
     try:
-        # Construct URLs that point to the platform-specific subdirectories
         platform_update_url = f"{UPDATE_URL}{platform_suffix}/"
         client = Client(
             app_name=platform_app_name,
@@ -91,14 +96,8 @@ def check_for_updates(log_callback: callable, config: dict):
         new_update = client.check_for_updates(pre="a")
 
         if new_update:
-            logger.info(f"Update {new_update.version} found, downloading...")
-
-            # Pass confirm=False to prevent the updater from requiring console input,
-            # which resolves the 'lost sys.stdin' error in a GUI application.
-            if client.download_and_apply_update(target=new_update, confirm=False):
-                logger.info("Update successful. Restarting application...")
-            else:
-                logger.error("Update download or installation failed.")
+            logger.info(f"Update {new_update.version} found.")
+            app_instance.show_update_notification(new_update)
         else:
             logger.info("Application is up to date.")
 
@@ -114,10 +113,24 @@ class App(customtkinter.CTk):
         self.geometry("800x600")
         self.iconbitmap(resource_path("assets/icon.ico"))
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        # Configure grid rows for update bar, controls, and log box
+        self.grid_rowconfigure(2, weight=1)
 
+        # --- UPDATE NOTIFICATION FRAME ---
+        self.update_frame = customtkinter.CTkFrame(self, fg_color="#2B39B2")
+        self.update_label = customtkinter.CTkLabel(
+            self.update_frame, text="A new version is available!"
+        )
+        self.update_label.pack(side="left", padx=20, pady=5)
+        self.update_button = customtkinter.CTkButton(
+            self.update_frame, text="Install Now", command=self.apply_update
+        )
+        self.update_button.pack(side="right", padx=10, pady=5)
+        self.new_update_info = None
+
+        # --- CONTROL FRAME ---
         self.control_frame = customtkinter.CTkFrame(self, height=50)
-        self.control_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+        self.control_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
 
         self.run_button = customtkinter.CTkButton(
             self.control_frame, text="Run Sync", command=self.start_sync_thread
@@ -131,7 +144,6 @@ class App(customtkinter.CTk):
             fg_color="transparent",
             border_width=1,
         )
-
         self.cancel_event = threading.Event()
 
         self.more_icon = CTkImage(
@@ -139,7 +151,6 @@ class App(customtkinter.CTk):
             dark_image=Image.open(resource_path("assets/dots_light.png")),
             size=(20, 20),
         )
-
         self.more_button = customtkinter.CTkButton(
             self.control_frame,
             text="",
@@ -157,11 +168,13 @@ class App(customtkinter.CTk):
         )
         self.status_label.pack(side="left", padx=10)
 
+        # --- LOG BOX ---
         self.log_box = customtkinter.CTkTextbox(
             self, state="disabled", font=("Courier New", 12)
         )
-        self.log_box.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        self.log_box.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="nsew")
 
+        # --- MENUS ---
         self.more_menu = tkinter.Menu(self, tearoff=0)
         self.more_menu.add_command(label="Settings", command=self.open_settings)
         self.more_menu.add_command(label="Help", command=self.open_help_file)
@@ -177,57 +190,108 @@ class App(customtkinter.CTk):
             label="Select All", command=self.select_all_log_text
         )
 
+        # --- INITIALIZATION ---
         self.log_box.bind("<Button-3>", self.show_right_click_menu)
         self.settings_window = None
-
         self.update_readiness_status()
 
         config = self.get_current_config()
-        if is_production_environment() and config.get("AUTO_UPDATE_ENABLED", True):
+
+        # Determine if the update check should run
+        in_prod = is_production_environment()
+        prod_update_enabled = in_prod and config.get("AUTO_UPDATE_ENABLED", True)
+        dev_update_enabled = not in_prod and DEV_AUTO_UPDATE_ENABLED
+
+        if prod_update_enabled or dev_update_enabled:
             update_thread = threading.Thread(
-                target=check_for_updates, args=(self.log_message, config), daemon=True
+                target=check_for_updates, args=(self,), daemon=True
             )
             update_thread.start()
-        elif not is_production_environment():
+        elif not in_prod:
             self.log_message("Auto-update check disabled in development mode.")
+
+    def show_update_notification(self, new_update):
+        self.new_update_info = new_update
+        self.update_frame.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="ew")
+
+    def apply_update(self):
+        if not self.new_update_info:
+            return
+        self.update_button.configure(state="disabled", text="Installing...")
+        self.log_message(f"Downloading update {self.new_update_info.version}...")
+        update_thread = threading.Thread(target=self.threaded_apply, daemon=True)
+        update_thread.start()
+
+    def threaded_apply(self):
+        platform_system = platform.system().lower()
+        platform_suffix = (
+            "win"
+            if platform_system == "windows"
+            else "mac"
+            if platform_system == "darwin"
+            else "linux"
+        )
+        platform_app_name = f"{APP_NAME}-{platform_suffix}"
+        app_data_dir = Path.home() / f".{APP_NAME}"
+
+        client = Client(
+            app_name=platform_app_name,
+            app_install_dir=Path(sys.executable).parent,
+            current_version=APP_VERSION,
+            metadata_dir=app_data_dir / "metadata",
+            target_dir=app_data_dir / "targets",
+            metadata_base_url=f"{UPDATE_URL}{platform_suffix}/metadata/",
+            target_base_url=f"{UPDATE_URL}{platform_suffix}/targets/",
+        )
+
+        if client.download_and_apply_update(target=self.new_update_info, confirm=False):
+            self.log_message("Update successful. Please restart the application.")
+        else:
+            self.log_message("[ERROR] Update failed.")
+            self.update_button.configure(state="normal", text="Install Now")
+
+    def force_update_check(self):
+        """Starts the update check process manually, triggered by the user."""
+        self.log_message("\n--- Manual update check initiated ---")
+        # Reuse the same check_for_updates function in a new thread
+        update_thread = threading.Thread(
+            target=check_for_updates, args=(self,), daemon=True
+        )
+        update_thread.start()
 
     def get_current_config(self):
         """
-        Loads all settings from the system keychain and returns them as a
-        dictionary.
+        Loads all settings from the system keychain and returns them as a dict.
         """
+        keys_to_load = [
+            "braze_api_key",
+            "transifex_api_token",
+            "braze_endpoint",
+            "transifex_org",
+            "transifex_project",
+            "backup_path",
+            "log_level",
+            "backup_enabled",
+            "auto_update_enabled",
+        ]
+        defaults = {
+            "backup_path": str(Path.home() / DEFAULT_BACKUP_PATH_NAME),
+            "log_level": DEFAULT_LOG_LEVEL,
+            "backup_enabled": str(int(DEFAULT_BACKUP_ENABLED)),
+            "auto_update_enabled": str(int(DEFAULT_AUTO_UPDATE_ENABLED)),
+        }
         config = {}
-        config["BRAZE_API_KEY"] = keyring.get_password(SERVICE_NAME, "braze_api_key")
-        config["TRANSIFEX_API_TOKEN"] = keyring.get_password(
-            SERVICE_NAME, "transifex_api_token"
-        )
-        config["BRAZE_REST_ENDPOINT"] = (
-            keyring.get_password(SERVICE_NAME, "braze_endpoint") or ""
-        )
-        config["TRANSIFEX_ORGANIZATION_SLUG"] = (
-            keyring.get_password(SERVICE_NAME, "transifex_org") or ""
-        )
-        config["TRANSIFEX_PROJECT_SLUG"] = (
-            keyring.get_password(SERVICE_NAME, "transifex_project") or ""
-        )
-        config["BACKUP_PATH"] = keyring.get_password(SERVICE_NAME, "backup_path")
-        if not config["BACKUP_PATH"]:
-            config["BACKUP_PATH"] = str(Path.home() / DEFAULT_BACKUP_PATH_NAME)
-        config["LOG_LEVEL"] = (
-            keyring.get_password(SERVICE_NAME, "log_level") or DEFAULT_LOG_LEVEL
-        )
-        backup_enabled_str = keyring.get_password(
-            SERVICE_NAME, "backup_enabled"
-        ) or str(int(DEFAULT_BACKUP_ENABLED))
-        config["BACKUP_ENABLED"] = backup_enabled_str == "1"
-        update_enabled_str = keyring.get_password(
-            SERVICE_NAME, "auto_update_enabled"
-        ) or str(int(DEFAULT_AUTO_UPDATE_ENABLED))
-        config["AUTO_UPDATE_ENABLED"] = update_enabled_str == "1"
+        for key in keys_to_load:
+            config[key.upper()] = keyring.get_password(
+                SERVICE_NAME, key
+            ) or defaults.get(key, "")
+
+        config["BACKUP_ENABLED"] = config["BACKUP_ENABLED"] == "1"
+        config["AUTO_UPDATE_ENABLED"] = config["AUTO_UPDATE_ENABLED"] == "1"
         return config
 
     def update_readiness_status(self):
-        """Checks config and updates UI state, always showing debug status if enabled."""
+        """Checks config and updates UI state, always showing debug status."""
         config = self.get_current_config()
         is_ready = all([config.get("BRAZE_API_KEY"), config.get("TRANSIFEX_API_TOKEN")])
         base_status = "Ready" if is_ready else "Configuration required"
@@ -304,9 +368,9 @@ class App(customtkinter.CTk):
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
-        config = self.load_config_for_sync()
+        config = self.get_current_config()
         try:
-            if config:
+            if all([config["BRAZE_API_KEY"], config["TRANSIFEX_API_TOKEN"]]):
                 sync_logic_main(
                     config,
                     self.log_message,
@@ -337,19 +401,6 @@ class App(customtkinter.CTk):
             self.update_readiness_status()
         else:
             self.settings_window.focus()
-
-    def load_config_for_sync(self):
-        """
-        Loads the configuration and validates that essential keys are present for
-        syncing.
-        Returns the config dictionary if valid, otherwise returns None.
-        """
-        config = self.get_current_config()
-        return (
-            config
-            if all([config["BRAZE_API_KEY"], config["TRANSIFEX_API_TOKEN"]])
-            else None
-        )
 
 
 if __name__ == "__main__":

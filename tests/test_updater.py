@@ -3,64 +3,67 @@
 import pytest
 from unittest.mock import MagicMock
 
-from app import check_for_updates
+# The function we are testing is now in `app`, not a separate file
+from app import check_for_updates, App
 
 
 @pytest.fixture
 def mock_tufup_client(mocker):
     """Mocks the tufup Client class."""
     mock_client_instance = MagicMock()
+    # Ensure any call to the Client constructor returns our mock instance
     mocker.patch("app.Client", return_value=mock_client_instance)
     return mock_client_instance
 
 
-def test_update_found_and_applied(mock_tufup_client):
-    """Verify that if an update is found, it is downloaded and installed."""
+@pytest.fixture
+def mock_app_instance(mocker):
+    """
+    Mocks the main App class to isolate the `check_for_updates` logic.
+    We only need to mock the methods that `check_for_updates` calls directly.
+    """
+    # We don't need a full GUI app, just an object with the right methods
+    app_instance = MagicMock(spec=App)
+    # Configure the mock to return a valid config dictionary
+    app_instance.get_current_config.return_value = {"LOG_LEVEL": "Normal"}
+    return app_instance
+
+
+def test_update_found_and_notification_shown(mock_tufup_client, mock_app_instance):
+    """
+    Verify that if an update is found, the app's notification method is called.
+    """
     mock_update = MagicMock(version="2.0.0")
     mock_tufup_client.check_for_updates.return_value = mock_update
-    mock_tufup_client.download_and_apply_update.return_value = True
-    logged_messages = []
 
-    check_for_updates(logged_messages.append, {"LOG_LEVEL": "Normal"})
+    # Call the function with our mocked app instance
+    check_for_updates(mock_app_instance)
 
-    full_log = "\n".join(logged_messages)
-    assert "Update 2.0.0 found" in full_log
+    # Verify that the log message was sent
+    mock_app_instance.log_message.assert_any_call("Update 2.0.0 found.")
 
-    # Update the assertion to include the new `confirm=False` argument
-    mock_tufup_client.download_and_apply_update.assert_called_once_with(
-        target=mock_update, confirm=False
-    )
+    # Verify that the notification method was called with the update info
+    mock_app_instance.show_update_notification.assert_called_once_with(mock_update)
 
 
-def test_no_update_found(mock_tufup_client):
-    """Verify that if no update is found, the correct message is logged."""
+def test_no_update_found(mock_tufup_client, mock_app_instance):
+    """Verify correct behavior when no update is found."""
     mock_tufup_client.check_for_updates.return_value = None
-    logged_messages = []
 
-    check_for_updates(logged_messages.append, {"LOG_LEVEL": "Normal"})
+    check_for_updates(mock_app_instance)
 
-    assert "Application is up to date." in "\n".join(logged_messages)
+    # Check that the log contains the "up to date" message
+    mock_app_instance.log_message.assert_any_call("Application is up to date.")
 
-
-def test_update_download_fails(mock_tufup_client):
-    """Verify that if an update download fails, an error is logged."""
-    mock_update = MagicMock(version="2.0.0")
-    mock_tufup_client.check_for_updates.return_value = mock_update
-    # Configure the correct method to return False for failure
-    mock_tufup_client.download_and_apply_update.return_value = False
-    logged_messages = []
-
-    check_for_updates(logged_messages.append, {"LOG_LEVEL": "Normal"})
-
-    assert "[ERROR] Update download or installation failed." in "\n".join(
-        logged_messages
-    )
+    # Ensure the notification method was NOT called
+    mock_app_instance.show_update_notification.assert_not_called()
 
 
-def test_check_for_updates_uses_prerelease_channel(mock_tufup_client):
+def test_check_for_updates_uses_prerelease_channel(
+    mock_tufup_client, mock_app_instance
+):
     """
     Verify that the check_for_updates function enables the pre-release channel.
     """
-    logged_messages = []
-    check_for_updates(logged_messages.append, {"LOG_LEVEL": "Normal"})
+    check_for_updates(mock_app_instance)
     mock_tufup_client.check_for_updates.assert_called_once_with(pre="a")

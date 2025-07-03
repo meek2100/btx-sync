@@ -22,3 +22,8 @@ DEFAULT_AUTO_UPDATE_ENABLED = True
 # Centralized translatable fields for easier maintenance.
 EMAIL_TRANSLATABLE_FIELDS = ["subject", "preheader", "body"]
 BLOCK_TRANSLATABLE_FIELDS = ["content"]
+
+# --- Development Flags ---
+# Set to True to enable the auto-update check when running from source code.
+# This is useful for testing the update process locally.
+DEV_AUTO_UPDATE_ENABLED = True
