@@ -101,8 +101,6 @@ jobs:
             cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
             mkdir -p keystore
             cp ../keystore_backup/* keystore/
-            
-            tufup init
 
             if [ "$PLATFORM" == "win" ]; then
               tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
