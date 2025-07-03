@@ -96,22 +96,34 @@ jobs:
           for platform_info in $PLATFORMS; do
             IFS=':' read -r p_suffix p_os p_artifact <<< "$platform_info"
             echo "--- Processing platform: $p_suffix ---"
-
-            REPO_DIR="deploy_repo/$p_suffix"
-            mkdir -p "$REPO_DIR/metadata"
-            mkdir -p "$REPO_DIR/targets"
-            cp repository/metadata/root.json "$REPO_DIR/metadata/"
             
-            # Create a repo-specific config file on the fly
-            CONFIG_FILE=".tufup-repo-config-$p_suffix"
+            # Define absolute paths for directories and files
+            REPO_DIR_ABS="$(pwd)/deploy_repo/$p_suffix"
+            ARTIFACT_PATH_ABS="$(pwd)/artifacts/btx-sync-$p_os/$p_artifact"
+            KEYSTORE_PATH_ABS="$(pwd)/keystore"
+            ROOT_JSON_ABS="$(pwd)/repository/metadata/root.json"
+
+            # Create the repository structure
+            mkdir -p "$REPO_DIR_ABS/metadata"
+            cp "$ROOT_JSON_ABS" "$REPO_DIR_ABS/metadata/"
+
+            # Create the config file inside the new repository directory
+            CONFIG_FILE="$REPO_DIR_ABS/.tufup-repo-config"
             echo "[tufup]" > $CONFIG_FILE
             echo "app_name = btx-sync-$p_suffix" >> $CONFIG_FILE
 
-            tufup targets add "$APP_VERSION" "artifacts/btx-sync-$p_os/$p_artifact" keystore -r "$REPO_DIR"
+            # Change into the repository directory before running tufup
+            cd "$REPO_DIR_ABS"
+            
+            # Run tufup commands, using absolute paths to the artifact and keystore
+            tufup targets add "$APP_VERSION" "$ARTIFACT_PATH_ABS" "$KEYSTORE_PATH_ABS"
 
             for role in root targets snapshot timestamp; do
-              tufup sign "$role" keystore -r "$REPO_DIR"
+              tufup sign "$role" "$KEYSTORE_PATH_ABS"
             done
+            
+            # Return to the original directory
+            cd -
           done
       
       - name: Verify Repository Contents
