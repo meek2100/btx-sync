@@ -18,7 +18,6 @@ def test_update_found_and_applied(mock_tufup_client):
     """Verify that if an update is found, it is downloaded and installed."""
     mock_update = MagicMock(version="2.0.0")
     mock_tufup_client.check_for_updates.return_value = mock_update
-    # Configure the correct method to return True for success
     mock_tufup_client.download_and_apply_update.return_value = True
     logged_messages = []
 
@@ -26,9 +25,10 @@ def test_update_found_and_applied(mock_tufup_client):
 
     full_log = "\n".join(logged_messages)
     assert "Update 2.0.0 found" in full_log
-    # Assert that the correct method was called on the client
+
+    # Update the assertion to include the new `confirm=False` argument
     mock_tufup_client.download_and_apply_update.assert_called_once_with(
-        target=mock_update
+        target=mock_update, confirm=False
     )
 
 
