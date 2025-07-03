@@ -1,6 +1,6 @@
 # .github/workflows/release.yml
 
-name: Build and Release
+name: Build, Sign, and Release
 
 on:
   push:
@@ -9,19 +9,21 @@ on:
 
 jobs:
   build:
-    name: Build Executables
+    name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    outputs:
-      version: ${{ steps.set_version.outputs.version }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.10"]
+    outputs:
+      app_version: ${{ steps.set_version.outputs.version }}
+
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
-        with: { python-version: "${{ matrix.python-version }}" }
+        with:
+          python-version: "${{ matrix.python-version }}"
       - name: Create Version File
         id: set_version
         run: |
@@ -33,28 +35,29 @@ jobs:
         run: pip install -r requirements.txt && pip install pyinstaller
       - name: Build the application
         run: >
-          pyinstaller --noconfirm --onefile --windowed 
-          --name "btx-sync" 
-          --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" 
-          --add-data "assets${{ env.pathsep }}assets" 
-          --add-data "README.md${{ env.pathsep }}." 
-          --add-data "repository/metadata/root.json${{ env.pathsep }}repository/metadata" 
+          pyinstaller --noconfirm --onefile --windowed
+          --name "btx-sync"
+          --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}"
+          --add-data "assets${{ env.pathsep }}assets"
+          --add-data "README.md${{ env.pathsep }}."
+          --add-data "repository/metadata/root.json${{ env.pathsep }}repository/metadata"
           app.py
-        env: { pathsep: "${{ runner.os == 'Windows' && ';' || ':' }}" }
+        env:
+          pathsep: "${{ runner.os == 'Windows' && ';' || ':' }}"
       - name: Package macOS App
         if: runner.os == 'macOS'
         run: (cd dist && zip -r btx-sync-macOS.zip btx-sync.app)
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: btx-sync-${{ matrix.os }}
+          name: btx-sync-${{ runner.os }}
           path: |
             ${{ runner.os == 'macOS' && 'dist/btx-sync-macOS.zip' || '' }}
             ${{ runner.os == 'Windows' && 'dist/btx-sync.exe' || '' }}
             ${{ runner.os == 'Linux' && 'dist/btx-sync' || '' }}
 
   release:
-    name: Process, Release and Deploy
+    name: Sign, Release, and Deploy
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -62,105 +65,53 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with: { path: artifacts }
+        with:
+          path: artifacts
       - name: Set up Python
         uses: actions/setup-python@v5
-        with: { python-version: "3.10" }
+        with:
+          python-version: "3.10"
+      - name: Install tufup
+        run: python -m pip install tufup==0.9.0
 
-      - name: Process and Sign All Platforms
+      - name: Create Keystore from Secrets
         env:
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
           TUF_TARGETS_KEY: ${{ secrets.TUF_TARGETS_PRIVATE_KEY }}
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
         run: |
-          set -e # Exit immediately if a command exits with a non-zero status.
-          pip install tufup
-          
-          # This directory will hold the final, combined repository for deployment
-          mkdir -p deploy_repo
-          
-          # Create a backup of the shared keys
-          mkdir -p keystore_backup
-          python -c "import os; f=open('keystore_backup/root', 'w'); f.write(os.environ['TUF_ROOT_KEY']); f.close()"
-          python -c "import os; f=open('keystore_backup/snapshot', 'w'); f.write(os.environ['TUF_SNAPSHOT_KEY']); f.close()"
-          python -c "import os; f=open('keystore_backup/targets', 'w'); f.write(os.environ['TUF_TARGETS_KEY']); f.close()"
-          python -c "import os; f=open('keystore_backup/timestamp', 'w'); f.write(os.environ['TUF_TIMESTAMP_KEY']); f.close()"
+          mkdir -p keystore
+          echo "$TUF_ROOT_KEY" > keystore/root
+          echo "$TUF_SNAPSHOT_KEY" > keystore/snapshot
+          echo "$TUF_TARGETS_KEY" > keystore/targets
+          echo "$TUF_TIMESTAMP_KEY" > keystore/timestamp
 
-          APP_FULL_VERSION="${{ needs.build.outputs.version }}"
-          PLATFORMS="win mac linux"
+      - name: Process and Sign Platforms
+        run: |
+          set -e
+          APP_VERSION="${{ needs.build.outputs.app_version }}"
+          PLATFORMS="win:windows-latest:btx-sync.exe mac:macos-latest:btx-sync-macOS.zip linux:ubuntu-latest:btx-sync"
 
-          for PLATFORM in $PLATFORMS
-          do
-            echo "--- Processing platform: $PLATFORM ---"
-            pwd
-            rm -rf temp_workspace
-            mkdir -p temp_workspace && cd temp_workspace
-            pwd
+          for platform_info in $PLATFORMS; do
+            IFS=':' read -r p_suffix p_os p_artifact <<< "$platform_info"
+            echo "--- Processing platform: $p_suffix ---"
 
-            cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
-            mkdir -p keystore repository/targets repository/metadata
-            cp ../keystore_backup/* keystore/
+            REPO_DIR="deploy_repo/$p_suffix"
+            mkdir -p "$REPO_DIR/metadata"
+            mkdir -p "$REPO_DIR/targets"
+            cp repository/metadata/root.json "$REPO_DIR/metadata/"
             
-            cd ../artifacts/
-            pwd
-            ls -l
-            cd ../artifacts/btx-sync-windows-latest/
-            pwd
-            ls -l
-            cd ../../artifacts/btx-sync-macos-latest/
-            pwd
-            ls -l
-            cd ../../artifacts/btx-sync-ubuntu-latest/
-            pwd
-            ls -l
-            cd ../../temp_workspace
-            pwd
-            ls -l
-            
-            # This creates the necessary directory structure non-interactively
-            # by using the --create-keystore-and-repo-dirs flag, although it is
-            # now redundant due to the mkdir commands above, it is harmless.
-            if [ "$PLATFORM" == "win" ]; then
-              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
-            elif [ "$PLATFORM" == "mac" ]; then
-              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-macos-latest/btx-sync-macOS.zip" "keystore"
-            elif [ "$PLATFORM" == "linux" ]; then
-              tufup targets add "$APP_FULL_VERSION" "../artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
-            fi
-            
-            cd repository
-            pwd
-            ls -l
-            cd metadata
-            pwd
-            ls -l
-            cd ../targets
-            pwd ls -l
-            cd ../../
-            pwd
-            ls -l
-            
+            # Create a repo-specific config file on the fly
+            CONFIG_FILE=".tufup-repo-config-$p_suffix"
+            echo "[tufup]" > $CONFIG_FILE
+            echo "app_name = btx-sync-$p_suffix" >> $CONFIG_FILE
 
+            tufup targets add "$APP_VERSION" "artifacts/btx-sync-$p_os/$p_artifact" keystore -r "$REPO_DIR"
 
-
-
-            # Sign all roles for this platform's repository
-            tufup sign root keystore
-            tufup sign targets keystore
-            tufup sign snapshot keystore
-            tufup sign timestamp keystore
-
-            # Copy this platform's repository into its own subdirectory
-            pwd
-            ls -l
-            mkdir -p ../deploy_repo/$PLATFORM
-            cp -a repository/. ../deploy_repo/$PLATFORM/
-            
-            # Go back to the root directory for the next loop
-            cd ..
-            pwd 
-            ls -l
+            for role in root targets snapshot timestamp; do
+              tufup sign "$role" keystore -r "$REPO_DIR"
+            done
           done
       
       - name: Verify Repository Contents
