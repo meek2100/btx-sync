@@ -102,6 +102,21 @@ jobs:
             mkdir -p keystore repository/targets repository/metadata
             cp ../keystore_backup/* keystore/
             
+            cd ../artifacts/
+            pwd
+            ls -l
+            cd ../artifacts/btx-sync-windows-latest/
+            pwd
+            ls -l
+            cd ../artifacts/btx-sync-macos-latest/
+            pwd
+            ls -l
+            cd ../artifacts/btx-sync-ubuntu-latest/
+            pwd
+            ls -l
+            
+            cd ../../temp_workspace
+            
             # This creates the necessary directory structure non-interactively
             # by using the --create-keystore-and-repo-dirs flag, although it is
             # now redundant due to the mkdir commands above, it is harmless.
