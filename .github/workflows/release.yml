@@ -73,6 +73,12 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Install tufup
+        run: pip install tufup==0.9.0
+
+      - name: Install jq
+        run: apt update && apt install -y jq
+
       - name: Process and Sign All Platforms
         env:
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
@@ -81,7 +87,6 @@ jobs:
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
         run: |
           set -e
-          pip install tufup==0.9.0
           
           mkdir -p keystore
           echo "$TUF_ROOT_KEY" > keystore/root
@@ -112,7 +117,7 @@ jobs:
             jq --arg new_name "btx-sync-$p_suffix" '.app_name = $new_name' $ROOT_ABS/.tufup-repo-config > ./.tufup-repo-config
 
             echo "---Validate config is setup properly---"
-            code_val=$(jq -r '.app_name' <<< ./.tufup-repo-config)
+            code_val=$(jq -r '.app_name' ./.tufup-repo-config)
             echo "JQ Lookup of app new name for the app_name field is: $code_val and we were expecting it to be: btx-sync-$p_suffix"
 
             # 3. Copy ALL existing metadata from the project's repository.
