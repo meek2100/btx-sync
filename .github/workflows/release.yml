@@ -93,9 +93,10 @@ jobs:
           for PLATFORM in $PLATFORMS
           do
             echo "--- Processing platform: $PLATFORM ---"
-            
+            pwd
             rm -rf temp_workspace
             mkdir -p temp_workspace && cd temp_workspace
+            pwd
 
             cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
             mkdir -p keystore repository/targets repository/metadata
@@ -119,11 +120,15 @@ jobs:
             tufup sign timestamp keystore
 
             # Copy this platform's repository into its own subdirectory
+            pwd
+            ls -l
             mkdir -p ../deploy_repo/$PLATFORM
             cp -a repository/. ../deploy_repo/$PLATFORM/
             
             # Go back to the root directory for the next loop
             cd ..
+            pwd 
+            ls -l
           done
       
       - name: Verify Repository Contents
