@@ -64,7 +64,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
       - name: Set up Python
@@ -103,25 +104,22 @@ jobs:
             mkdir -p repository/metadata repository/targets
             cp -r ../keystore ./
 
-            # 2. **CRUCIAL FIX**: Copy the base JSON config and use `jq` to update the app_name
+            # 2. Copy the base JSON config and use `jq` to update the app_name
             #    This assumes your base config file is named `.tufup-repo-config` in the project root.
             jq --arg new_name "btx-sync-$p_suffix" '.app_name = $new_name' ../.tufup-repo-config > ./.tufup-repo-config
 
-            # 3. Manually place the initial metadata files
-            cp ../repository/metadata/root.json ./repository/metadata/
-            echo '{}' > ./repository/metadata/targets.json
-            echo '{}' > ./repository/metadata/snapshot.json
-            echo '{}' > ./repository/metadata/timestamp.json
+            # 3. Copy ALL existing metadata from the project's repository.
+            cp -a ../repository/metadata/. ./repository/metadata/
 
-            # 4. Run tufup commands from the workspace root
+            # 4. Add the new application bundle to the repository.
             tufup targets add "$APP_VERSION" "../artifacts/btx-sync-$p_os" keystore
             
-            # 5. Sign all roles
+            # 5. Sign all roles to commit the new target.
             for role in root targets snapshot timestamp; do
               tufup sign "$role" keystore
             done
 
-            # 6. Copy the completed repository to the final deployment directory
+            # 6. Copy the completed repository to the final deployment directory.
             mkdir -p ../deploy_repo/$p_suffix
             cp -a ./repository/. ../deploy_repo/$p_suffix/
             
