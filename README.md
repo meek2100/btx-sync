@@ -12,6 +12,15 @@ A cross-platform desktop application for synchronizing content from Braze to Tra
 -   **Configurable Settings:** An easy-to-use settings panel for configuring API keys, endpoints, and features like TMX backup.
 -   **Robust Logging:** Provides clear feedback on the sync process, with an optional "Debug" mode for detailed API call inspection.
 
+### Secure Automatic Updates
+
+This application includes a secure, automatic update feature to ensure you always have the latest version.
+
+-   **On Startup**: The app quietly checks for new versions in the background.
+-   **Secure**: All updates are cryptographically signed to verify they are from the developer and have not been tampered with.
+-   **Seamless**: If an update is found, it will be downloaded and installed automatically. You will be prompted to restart the application to complete the process.
+-   **Control**: You can disable this feature at any time in the Settings panel.
+
 ## How It Works
 
 This tool automates the process of preparing Braze content for professional translation via Transifex.
