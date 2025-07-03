@@ -108,14 +108,14 @@ jobs:
             cd ../artifacts/btx-sync-windows-latest/
             pwd
             ls -l
-            cd ../artifacts/btx-sync-macos-latest/
+            cd ../../artifacts/btx-sync-macos-latest/
             pwd
             ls -l
-            cd ../artifacts/btx-sync-ubuntu-latest/
+            cd ../../artifacts/btx-sync-ubuntu-latest/
             pwd
             ls -l
-            
             cd ../../temp_workspace
+            ls -l
             
             # This creates the necessary directory structure non-interactively
             # by using the --create-keystore-and-repo-dirs flag, although it is
