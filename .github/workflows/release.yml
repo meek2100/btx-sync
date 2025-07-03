@@ -72,10 +72,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-
-      - name: Install tufup
-        run: pip install tufup==0.9.0
-
+      - name: Install tufup and jq
+        run: |
+          pip install tufup==0.9.0
+          sudo apt-get update && sudo apt-get install -y jq
+      
       - name: Process and Sign All Platforms
         env:
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
@@ -92,47 +93,41 @@ jobs:
           echo "$TUF_TIMESTAMP_KEY" > keystore/timestamp
 
           APP_VERSION="${{ needs.build.outputs.app_version }}"
-          PLATFORMS="win:windows-latest mac:macos-latest linux:ubuntu-latest"
+          # **CRUCIAL FIX**: Match these names to the runner.os values from the build job
+          PLATFORMS="win:Windows mac:macOS linux:Linux"
 
           for platform_info in $PLATFORMS; do
             IFS=':' read -r p_suffix p_os <<< "$platform_info"
             echo "--- Processing platform: $p_suffix ---"
 
-            # Define absolute paths for directories
-            ROOT_ABS="$(pwd)"
-            
             rm -rf temp_workspace
             mkdir -p temp_workspace
             cd temp_workspace
 
-            # 1. Create the required repository and keystore subdirectories
+            # 1. Create repository structure and copy keystore
             mkdir -p repository/metadata repository/targets
-            cp -r $ROOT_ABS/keystore ./
+            cp -r ../keystore ./
 
-            # 2. Copy the base JSON config and use `jq` to update the app_name
-            #    This assumes your base config file is named `.tufup-repo-config` in the project root.
-            jq --arg new_name "btx-sync-$p_suffix" '.app_name = $new_name' $ROOT_ABS/.tufup-repo-config > ./.tufup-repo-config
+            # 2. Copy and update the tufup config file for the platform
+            jq --arg name "btx-sync-$p_suffix" '.app_name = $name' ../.tufup-repo-config > ./.tufup-repo-config
 
-            echo "---Validate config is setup properly---"
-            code_val=$(jq -r '.app_name' ./.tufup-repo-config)
-            echo "JQ Lookup of app new name for the app_name field is: $code_val and we were expecting it to be: btx-sync-$p_suffix"
+            # 3. Copy ALL existing metadata from the project's repository
+            cp -a ../repository/metadata/. ./repository/metadata/
 
-            # 3. Copy ALL existing metadata from the project's repository.
-            cp -a $ROOT_ABS/repository/metadata/. ./repository/metadata/
-
-            # 4. Add the new application bundle to the repository.
-            tufup targets add "$APP_VERSION" "$ROOT_ABS/artifacts/btx-sync-$p_os" keystore
+            # 4. Add the new application bundle to the repository
+            tufup targets add "$APP_VERSION" "../artifacts/btx-sync-$p_os" keystore
             
-            # 5. Sign all roles to commit the new target.
+            # 5. Sign all roles to commit the new target
             for role in root targets snapshot timestamp; do
               tufup sign "$role" keystore
             done
 
-            # 6. Copy the completed repository to the final deployment directory.
+            # 6. Copy the completed repository to the final deployment directory
             mkdir -p ../deploy_repo/$p_suffix
-            cp -a ./repository/. $ROOT_ABS/deploy_repo/$p_suffix/
+            cp -a ./repository/. ../deploy_repo/$p_suffix/
             
-            cd $ROOT_ABS
+            # Return to the project root for the next loop
+            cd ..
           done
       
       - name: Verify Repository Contents
@@ -160,6 +155,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
           gh release upload ${{ github.ref_name }}
-          ./artifacts/btx-sync-windows-latest/btx-sync.exe#btx-sync-Windows.exe
-          ./artifacts/btx-sync-macos-latest/btx-sync-macOS.zip#btx-sync-macOS.zip
-          ./artifacts/btx-sync-ubuntu-latest/btx-sync#btx-sync-Linux
+          ./artifacts/btx-sync-Windows/btx-sync.exe#btx-sync-Windows.exe
+          ./artifacts/btx-sync-macOS/btx-sync-macOS.zip#btx-sync-macOS.zip
+          ./artifacts/btx-sync-Linux/btx-sync#btx-sync-Linux
