@@ -93,16 +93,17 @@ jobs:
             echo "--- Processing platform: $PLATFORM ---"
             
             rm -rf temp_workspace
-            mkdir -p temp_workspace && cd temp_workspace
+            mkdir -p temp_workspace
+            cd temp_workspace
+            mkdir -p repository/targets
+            mkdir -p repository/metadata
 
             cp "../tufup-$PLATFORM.cfg" ".tufup-repo-config"
             mkdir -p keystore
             cp ../keystore_backup/* keystore/
             
-            # Manually create the directory structure `tufup` expects
-            # This replaces the interactive `tufup init` command.
-            python -m tufup.repo -i
-            
+            tufup init
+
             if [ "$PLATFORM" == "win" ]; then
               tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-windows-latest/btx-sync.exe" "keystore"
             elif [ "$PLATFORM" == "mac" ]; then
@@ -111,14 +112,14 @@ jobs:
               tufup targets add "$APP_FULL_VERSION" "../../artifacts/btx-sync-ubuntu-latest/btx-sync" "keystore"
             fi
             
-            # The `sign` command requires the specific role name and keystore path
             tufup sign root keystore
             tufup sign targets keystore
             tufup sign snapshot keystore
             tufup sign timestamp keystore
 
-            # Copy this platform's completed repository to the final deploy directory
-            cp -a repository/. ../deploy_repo/
+            # Copy this platform's repository into its own subdirectory
+            mkdir -p ../deploy_repo/$PLATFORM
+            cp -a repository/. ../deploy_repo/$PLATFORM/
             cd ..
           done
       
