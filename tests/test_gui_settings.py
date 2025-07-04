@@ -6,6 +6,11 @@ import keyring
 import requests
 
 from gui_settings import SettingsWindow, SERVICE_NAME
+from constants import (
+    KEY_BRAZE_API,
+    KEY_BACKUP_ENABLED,
+    KEY_AUTO_UPDATE,
+)
 
 
 class SettingsLogicContainer:
@@ -13,7 +18,10 @@ class SettingsLogicContainer:
     load_settings = SettingsWindow.load_settings
     confirm_and_reset = SettingsWindow.confirm_and_reset
     browse_directory = SettingsWindow.browse_directory
-    test_connections = SettingsWindow.test_connections
+    _test_braze_connection_from_ui = SettingsWindow._test_braze_connection_from_ui
+    _test_transifex_connection_from_ui = (
+        SettingsWindow._test_transifex_connection_from_ui
+    )
     _test_braze_connection = SettingsWindow._test_braze_connection
     _test_transifex_connection = SettingsWindow._test_transifex_connection
 
@@ -38,10 +46,15 @@ def settings_logic(mocker):
     logic_container.braze_endpoint_entry = MagicMock()
     logic_container.transifex_org_slug_entry = MagicMock()
     logic_container.transifex_project_slug_entry = MagicMock()
-    logic_container.backup_path_entry = MagicMock()
+
+    # --- THIS IS THE FIX ---
+    # The attribute name was changed in gui_settings.py, so we update the mock.
+    logic_container.backup_directory_entry = MagicMock()
+
     logic_container.backup_checkbox = MagicMock()
     logic_container.log_level_menu = MagicMock()
     logic_container.update_checkbox = MagicMock()
+    logic_container.save_button = MagicMock()
 
     return logic_container
 
@@ -79,16 +92,29 @@ def test_save_settings(settings_logic):
     settings_logic.braze_api_key_entry.get.return_value = "saved_braze_key"
     settings_logic.backup_checkbox.get.return_value = 1
     settings_logic.update_checkbox.get.return_value = 1
+
     settings_logic.save_settings()
-    keyring.set_password.assert_any_call(SERVICE_NAME, "backup_enabled", "1")
-    keyring.set_password.assert_any_call(SERVICE_NAME, "auto_update_enabled", "1")
+
+    keyring.set_password.assert_any_call(SERVICE_NAME, KEY_BACKUP_ENABLED, "1")
+    keyring.set_password.assert_any_call(SERVICE_NAME, KEY_AUTO_UPDATE, "1")
 
 
 def test_save_settings_deletes_empty_keys(settings_logic):
     """Verify that if a setting is empty, it is deleted from keyring."""
     settings_logic.braze_api_key_entry.get.return_value = ""
+    settings_logic.transifex_api_token_entry.get.return_value = "token"
+    # ... mock other gets to be non-empty ...
+    settings_logic.braze_endpoint_entry.get.return_value = "endpoint"
+    settings_logic.transifex_org_slug_entry.get.return_value = "org"
+    settings_logic.transifex_project_slug_entry.get.return_value = "proj"
+    settings_logic.backup_directory_entry.get.return_value = "/path"
+    settings_logic.log_level_menu.get.return_value = "Normal"
+    settings_logic.backup_checkbox.get.return_value = 1
+    settings_logic.update_checkbox.get.return_value = 1
+
     settings_logic.save_settings()
-    keyring.delete_password.assert_any_call(SERVICE_NAME, "braze_api_key")
+
+    keyring.delete_password.assert_any_call(SERVICE_NAME, KEY_BRAZE_API)
 
 
 def test_reset_settings(settings_logic):
@@ -101,20 +127,17 @@ def test_reset_settings(settings_logic):
 
 def test_browse_directory(settings_logic, mocker):
     """Verify that Browse for a directory updates the entry field."""
-    # The variable assignment is removed from the next line
     mocker.patch("tkinter.filedialog.askdirectory", return_value="/new/test/path")
-
     settings_logic.browse_directory()
-
-    settings_logic.backup_path_entry.delete.assert_called_once_with(0, "end")
-    settings_logic.backup_path_entry.insert.assert_called_once_with(0, "/new/test/path")
+    settings_logic.backup_directory_entry.delete.assert_called_once_with(0, "end")
+    settings_logic.backup_directory_entry.insert.assert_called_once_with(
+        0, "/new/test/path"
+    )
 
 
 def test_confirm_and_reset_cancelled(settings_logic, mocker):
     """Verify that if user cancels the reset, no keys are deleted."""
-    mocker.patch(
-        "tkinter.messagebox.askyesno", return_value=False
-    )  # Simulate user clicking "No"
+    mocker.patch("tkinter.messagebox.askyesno", return_value=False)
     settings_logic.confirm_and_reset()
     keyring.delete_password.assert_not_called()
 
@@ -139,7 +162,7 @@ def test_test_braze_connection_failure(settings_logic, mocker):
 
 
 def test_test_transifex_connection_success(settings_logic, mocker):
-    """Verify that a successful Transifex connection returns a SUCCESS status."""
+    """Verify a successful Transifex connection returns a SUCCESS status."""
     mocker.patch("requests.Session.get").return_value = MagicMock(
         status_code=200, raise_for_status=lambda: None
     )
@@ -148,7 +171,7 @@ def test_test_transifex_connection_success(settings_logic, mocker):
 
 
 def test_test_transifex_connection_failure(settings_logic, mocker):
-    """Verify that a failed Transifex connection returns a FAILED status."""
+    """Verify a failed Transifex connection returns a FAILED status."""
     mock_response = MagicMock(status_code=404)
     mocker.patch("requests.Session.get").side_effect = requests.exceptions.HTTPError(
         response=mock_response

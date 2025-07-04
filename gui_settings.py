@@ -2,13 +2,24 @@
 
 import customtkinter
 import keyring
+import tkinter
 import webbrowser
 from tkinter import messagebox, filedialog
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 import requests
 
 from constants import (
+    MANAGED_SETTINGS_KEYS,
+    KEY_BRAZE_API,
+    KEY_TX_API,
+    KEY_BRAZE_ENDPOINT,
+    KEY_TX_ORG,
+    KEY_TX_PROJECT,
+    KEY_BACKUP_PATH,
+    KEY_LOG_LEVEL,
+    KEY_BACKUP_ENABLED,
+    KEY_AUTO_UPDATE,
     DEFAULT_AUTO_UPDATE_ENABLED,
     DEFAULT_BACKUP_ENABLED,
     DEFAULT_BACKUP_PATH_NAME,
@@ -24,135 +35,237 @@ class SettingsWindow(customtkinter.CTkToplevel):
         super().__init__(*args, **kwargs)
         self.title("Settings")
         self.iconbitmap(resource_path("assets/icon.ico"))
-        self.geometry("600x720")  # Increased height for the new button
+        self.geometry("600x640")
         self.grid_columnconfigure(1, weight=1)
 
-        self.create_setting_row("Braze API Key:", 1, "...", show="*")
-        self.create_setting_row("Braze Endpoint:", 2, "...")
+        # --- Braze Settings ---
+        self._create_section_header(
+            "Braze Settings", 0, self._test_braze_connection_from_ui
+        )
+        self.braze_api_key_entry = self.create_setting_row(
+            "Braze API Key:", 1, "...", show="*"
+        )
+        self.braze_endpoint_entry = self.create_setting_row("Braze Endpoint:", 2, "...")
 
-        self.create_setting_row("Transifex API Token:", 4, "...", show="*")
-        self.create_setting_row("Transifex Org Slug:", 5, "...")
-        self.create_setting_row("Transifex Project Slug:", 6, "...")
+        # --- Transifex Settings ---
+        self._create_section_header(
+            "Transifex Settings", 3, self._test_transifex_connection_from_ui
+        )
+        self.transifex_api_token_entry = self.create_setting_row(
+            "Transifex API Token:", 4, "...", show="*"
+        )
+        self.transifex_org_slug_entry = self.create_setting_row(
+            "Transifex Org Slug:", 5, "..."
+        )
+        self.transifex_project_slug_entry = self.create_setting_row(
+            "Transifex Project Slug:", 6, "..."
+        )
 
+        # --- Updates Section ---
         self.update_label = customtkinter.CTkLabel(
             self,
             text="Application Updates",
             font=customtkinter.CTkFont(size=14, weight="bold"),
         )
         self.update_label.grid(
-            row=7, column=0, columnspan=3, padx=20, pady=(20, 5), sticky="w"
+            row=7, column=0, columnspan=2, padx=20, pady=(20, 5), sticky="w"
         )
+
+        update_action_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        update_action_frame.grid(
+            row=8, column=0, columnspan=2, padx=20, pady=0, sticky="ew"
+        )
+        update_action_frame.grid_columnconfigure(0, weight=1)
+
         self.update_checkbox = customtkinter.CTkCheckBox(
-            self, text="Automatically check for updates on startup"
+            update_action_frame,
+            text="Automatically check for updates on startup",
+            command=self._on_setting_change,
         )
-        self.update_checkbox.grid(
-            row=8, column=0, columnspan=3, padx=20, pady=5, sticky="w"
-        )
+        self.update_checkbox.pack(side="left")
 
-        # --- NEW "Check for Updates" Button ---
         self.check_now_button = customtkinter.CTkButton(
-            self, text="Check for Updates Now", command=self.trigger_update_check
+            update_action_frame,
+            text="Check for updates",
+            command=self.trigger_update_check,
+            width=150,
         )
-        self.check_now_button.grid(
-            row=9, column=0, columnspan=3, padx=20, pady=(5, 10), sticky="ew"
-        )
+        self.check_now_button.pack(side="right")
 
-        # Re-number all subsequent rows
+        # --- Backup Section ---
         self.backup_label = customtkinter.CTkLabel(
             self,
             text="Backup Settings",
             font=customtkinter.CTkFont(size=14, weight="bold"),
         )
         self.backup_label.grid(
-            row=10, column=0, columnspan=3, padx=20, pady=(20, 5), sticky="w"
+            row=9, column=0, columnspan=2, padx=20, pady=(20, 5), sticky="w"
         )
+
         self.backup_checkbox = customtkinter.CTkCheckBox(
-            self, text="Backup TMX before sync"
+            self, text="Backup TMX before sync", command=self._on_setting_change
         )
         self.backup_checkbox.grid(
-            row=11, column=0, columnspan=3, padx=20, pady=5, sticky="w"
+            row=10, column=0, columnspan=2, padx=20, pady=5, sticky="w"
         )
-        self.backup_path_label = customtkinter.CTkLabel(self, text="Backup Directory:")
-        self.backup_path_label.grid(row=12, column=0, padx=20, pady=5, sticky="w")
-        self.backup_path_entry = customtkinter.CTkEntry(self)
-        self.backup_path_entry.grid(row=12, column=1, padx=20, pady=5, sticky="ew")
-        self.browse_button = customtkinter.CTkButton(
-            self, text="Browse...", command=self.browse_directory
-        )
-        self.browse_button.grid(row=12, column=2, padx=(5, 20), pady=5)
 
-        self.debug_label = customtkinter.CTkLabel(
-            self,
+        backup_dir_label = customtkinter.CTkLabel(self, text="Backup Directory:")
+        backup_dir_label.grid(row=11, column=0, padx=(20, 10), pady=5, sticky="w")
+
+        backup_entry_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        backup_entry_frame.grid(row=11, column=1, padx=(0, 20), pady=5, sticky="ew")
+        backup_entry_frame.grid_columnconfigure(0, weight=1)
+
+        self.backup_directory_entry = self._create_entry_with_trace(backup_entry_frame)
+        self.backup_directory_entry.pack(side="left", fill="x", expand=True)
+
+        self.browse_button = customtkinter.CTkButton(
+            backup_entry_frame,
+            text="Browse...",
+            command=self.browse_directory,
+            width=100,
+        )
+        self.browse_button.pack(side="left", padx=(5, 0))
+
+        # --- Advanced Settings ---
+        self.advanced_checkbox = customtkinter.CTkCheckBox(
+            self, text="Show Advanced Settings", command=self.toggle_advanced_settings
+        )
+        self.advanced_checkbox.grid(
+            row=12, column=0, columnspan=2, padx=20, pady=(20, 0), sticky="w"
+        )
+
+        self.advanced_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        self.advanced_frame.grid(
+            row=13, column=0, columnspan=2, padx=0, pady=0, sticky="ew"
+        )
+        self.advanced_frame.grid_remove()  # Hidden by default
+
+        debug_label = customtkinter.CTkLabel(
+            self.advanced_frame,
             text="Debug Settings",
             font=customtkinter.CTkFont(size=14, weight="bold"),
         )
-        self.debug_label.grid(
-            row=13, column=0, columnspan=3, padx=20, pady=(20, 5), sticky="w"
+        debug_label.pack(anchor="w", padx=20, pady=(10, 5))
+
+        log_level_frame = customtkinter.CTkFrame(
+            self.advanced_frame, fg_color="transparent"
         )
-        self.log_level_label = customtkinter.CTkLabel(self, text="Log Level:")
-        self.log_level_label.grid(row=14, column=0, padx=20, pady=5, sticky="w")
+        log_level_frame.pack(fill="x", padx=20, pady=5, anchor="w")
+
+        log_level_label = customtkinter.CTkLabel(log_level_frame, text="Log Level:")
+        log_level_label.pack(side="left")
+
         self.log_level_menu = customtkinter.CTkOptionMenu(
-            self, values=["Normal", "Debug"]
+            log_level_frame, values=["Normal", "Debug"], command=self._on_setting_change
         )
-        self.log_level_menu.grid(row=14, column=1, padx=20, pady=5, sticky="w")
+        self.log_level_menu.pack(side="left", padx=10)
 
-        self.button_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        self.button_frame.grid(
-            row=15, column=0, columnspan=3, padx=20, pady=(20, 10), sticky="ew"
+        self.reset_button = customtkinter.CTkButton(
+            self.advanced_frame,
+            text="Reset to Defaults",
+            command=self.confirm_and_reset,
+            fg_color="#D32F2F",
+            hover_color="#B71C1C",
         )
-        self.button_frame.grid_columnconfigure(0, weight=1)
+        self.reset_button.pack(fill="x", padx=20, pady=10)
 
-        # ... (rest of the button frame setup remains the same)
-        # ...
+        # --- Bottom Button Bar ---
+        self.bottom_button_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        self.bottom_button_frame.grid(
+            row=14, column=0, columnspan=2, padx=20, pady=(20, 10), sticky="ew"
+        )
+        self.bottom_button_frame.grid_columnconfigure(0, weight=1)
+
+        self.save_button = customtkinter.CTkButton(
+            self.bottom_button_frame,
+            text="Save",
+            command=self.save_and_close,
+            state="disabled",
+        )
+        self.save_button.pack(side="right")
+
+        self.cancel_button = customtkinter.CTkButton(
+            self.bottom_button_frame,
+            text="Cancel",
+            command=self.destroy,
+            fg_color="transparent",
+            border_width=1,
+        )
+        self.cancel_button.pack(side="right", padx=(0, 10))
 
         self.load_settings()
 
-    # --- NEW method to call the update check ---
-    def trigger_update_check(self):
-        """Calls the main app's update check method and shows a popup."""
-        # The parent (App instance) is accessible via self.master
-        if hasattr(self.master, "force_update_check"):
-            self.master.force_update_check()
-            messagebox.showinfo(
-                "Update Check Started",
-                "The update check has started. Please see the main window "
-                "for progress and results.",
-            )
+    def toggle_advanced_settings(self):
+        if self.advanced_checkbox.get() == 1:
+            self.advanced_frame.grid()
+            self.geometry("600x720")
         else:
-            messagebox.showerror("Error", "Could not trigger update check.")
+            self.advanced_frame.grid_remove()
+            self.geometry("600x640")
+
+    def _on_setting_change(self, *args: Any) -> None:
+        self.save_button.configure(state="normal")
+
+    def _create_entry_with_trace(
+        self, parent, show: str | None = None
+    ) -> customtkinter.CTkEntry:
+        string_var = tkinter.StringVar()
+        string_var.trace_add("write", self._on_setting_change)
+        entry = customtkinter.CTkEntry(parent, textvariable=string_var, show=show)
+        entry.string_var = string_var
+        return entry
+
+    def _create_section_header(
+        self, text: str, row: int, test_command: Callable
+    ) -> None:
+        header_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        header_frame.grid(
+            row=row, column=0, columnspan=2, padx=20, pady=(20, 5), sticky="ew"
+        )
+        header_frame.grid_columnconfigure(0, weight=1)
+
+        label = customtkinter.CTkLabel(
+            header_frame, text=text, font=customtkinter.CTkFont(size=14, weight="bold")
+        )
+        label.pack(side="left")
+
+        button = customtkinter.CTkButton(
+            header_frame, text="↻", width=28, height=28, command=test_command
+        )
+        button.pack(side="right")
 
     def create_setting_row(
         self, label_text: str, row: int, help_info: str, show: str | None = None
-    ) -> None:
-        frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        frame.grid(row=row, column=0, padx=(20, 0), pady=5, sticky="w")
-        label = customtkinter.CTkLabel(frame, text=label_text)
-        label.pack(side="left")
+    ) -> customtkinter.CTkEntry:
+        label = customtkinter.CTkLabel(self, text=label_text)
+        label.grid(row=row, column=0, padx=(20, 10), pady=5, sticky="w")
 
-        def on_help_click() -> None:
-            """Handles click event for the help button."""
+        entry_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        entry_frame.grid(row=row, column=1, padx=(0, 20), pady=5, sticky="ew")
+        entry_frame.grid_columnconfigure(0, weight=1)
+
+        entry = self._create_entry_with_trace(entry_frame, show=show)
+        entry.pack(side="left", fill="x", expand=True)
+
+        def on_help_click():
             if help_info.startswith("http"):
                 self.open_link(help_info)
             else:
                 self.show_info_popup(label_text, help_info)
 
         help_button = customtkinter.CTkButton(
-            frame, text="?", width=20, height=20, command=on_help_click
+            entry_frame, text="?", width=28, height=28, command=on_help_click
         )
-        help_button.pack(side="left", padx=5)
+        help_button.pack(side="left", padx=(5, 0))
 
-        entry = customtkinter.CTkEntry(self, show=show if show else None)
-        entry.grid(row=row, column=1, columnspan=2, padx=20, pady=5, sticky="ew")
-        entry_attr_name = (
-            f"{label_text.lower().replace(' ', '_').replace(':', '')}_entry"
-        )
-        setattr(self, entry_attr_name, entry)
+        return entry
 
     def browse_directory(self) -> None:
         directory = filedialog.askdirectory()
         if directory:
-            self.backup_path_entry.delete(0, "end")
-            self.backup_path_entry.insert(0, directory)
+            self.backup_directory_entry.delete(0, "end")
+            self.backup_directory_entry.insert(0, directory)
 
     def open_link(self, url: str) -> None:
         webbrowser.open_new_tab(url)
@@ -160,95 +273,60 @@ class SettingsWindow(customtkinter.CTkToplevel):
     def show_info_popup(self, title: str, message: str) -> None:
         messagebox.showinfo(title, message)
 
+    def trigger_update_check(self) -> None:
+        if hasattr(self.master, "force_update_check"):
+            self.master.force_update_check()
+            messagebox.showinfo("Update Check Started", "See main window for progress.")
+        else:
+            messagebox.showerror("Error", "Could not trigger update check.")
+
     def save_and_close(self) -> None:
         self.save_settings()
         self.destroy()
 
     def save_settings(self) -> None:
-        def set_key(key: str, value: str) -> None:
-            if value:
+        def set_key(key, value):
+            return (
                 keyring.set_password(SERVICE_NAME, key, value)
-            else:
-                try:
-                    keyring.delete_password(SERVICE_NAME, key)
-                except keyring.errors.PasswordNotFoundError:
-                    pass
+                if value
+                else keyring.delete_password(SERVICE_NAME, key)
+            )
 
-        set_key("braze_api_key", self.braze_api_key_entry.get())
-        set_key("transifex_api_token", self.transifex_api_token_entry.get())
-        set_key("braze_endpoint", self.braze_endpoint_entry.get())
-        set_key("transifex_org", self.transifex_org_slug_entry.get())
-        set_key("transifex_project", self.transifex_project_slug_entry.get())
-        set_key("backup_path", self.backup_path_entry.get())
-        set_key("log_level", self.log_level_menu.get())
-        set_key("backup_enabled", "1" if self.backup_checkbox.get() else "0")
-        set_key("auto_update_enabled", "1" if self.update_checkbox.get() else "0")
+        set_key(KEY_BRAZE_API, self.braze_api_key_entry.get())
+        set_key(KEY_TX_API, self.transifex_api_token_entry.get())
+        set_key(KEY_BRAZE_ENDPOINT, self.braze_endpoint_entry.get())
+        set_key(KEY_TX_ORG, self.transifex_org_slug_entry.get())
+        set_key(KEY_TX_PROJECT, self.transifex_project_slug_entry.get())
+        set_key(KEY_BACKUP_PATH, self.backup_directory_entry.get())
+        set_key(KEY_LOG_LEVEL, self.log_level_menu.get())
+        set_key(KEY_BACKUP_ENABLED, "1" if self.backup_checkbox.get() else "0")
+        set_key(KEY_AUTO_UPDATE, "1" if self.update_checkbox.get() else "0")
+        self.save_button.configure(state="disabled")
 
     def load_settings(self) -> None:
-        self.braze_api_key_entry.delete(0, "end")
-        self.transifex_api_token_entry.delete(0, "end")
-        self.braze_endpoint_entry.delete(0, "end")
-        self.transifex_org_slug_entry.delete(0, "end")
-        self.transifex_project_slug_entry.delete(0, "end")
-        self.backup_path_entry.delete(0, "end")
+        def get_setting(key, default=""):
+            return keyring.get_password(SERVICE_NAME, key) or default
 
-        self.braze_api_key_entry.insert(
-            0, keyring.get_password(SERVICE_NAME, "braze_api_key") or ""
-        )
-        self.transifex_api_token_entry.insert(
-            0, keyring.get_password(SERVICE_NAME, "transifex_api_token") or ""
-        )
-        # FIX: Change the fallback from the default constant to an empty string
-        self.braze_endpoint_entry.insert(
-            0,
-            keyring.get_password(SERVICE_NAME, "braze_endpoint") or "",
-        )
-        self.transifex_org_slug_entry.insert(
-            0, keyring.get_password(SERVICE_NAME, "transifex_org") or ""
-        )
-        self.transifex_project_slug_entry.insert(
-            0, keyring.get_password(SERVICE_NAME, "transifex_project") or ""
-        )
-        self.backup_path_entry.insert(
-            0,
-            keyring.get_password(SERVICE_NAME, "backup_path")
-            or str(Path.home() / DEFAULT_BACKUP_PATH_NAME),
-        )
-        self.log_level_menu.set(
-            keyring.get_password(SERVICE_NAME, "log_level") or DEFAULT_LOG_LEVEL
+        self.braze_api_key_entry.insert(0, get_setting(KEY_BRAZE_API, ""))
+        self.transifex_api_token_entry.insert(0, get_setting(KEY_TX_API, ""))
+        self.braze_endpoint_entry.insert(0, get_setting(KEY_BRAZE_ENDPOINT, ""))
+        self.transifex_org_slug_entry.insert(0, get_setting(KEY_TX_ORG, ""))
+        self.transifex_project_slug_entry.insert(0, get_setting(KEY_TX_PROJECT, ""))
+        self.backup_directory_entry.insert(
+            0, get_setting(KEY_BACKUP_PATH, str(Path.home() / DEFAULT_BACKUP_PATH_NAME))
         )
 
-        backup_enabled_val = keyring.get_password(SERVICE_NAME, "backup_enabled")
-        if (backup_enabled_val or str(int(DEFAULT_BACKUP_ENABLED))) == "1":
-            self.backup_checkbox.select()
-        else:
-            self.backup_checkbox.deselect()
+        self.log_level_menu.set(get_setting(KEY_LOG_LEVEL, DEFAULT_LOG_LEVEL))
+        backup_val = get_setting(KEY_BACKUP_ENABLED, str(int(DEFAULT_BACKUP_ENABLED)))
+        self.backup_checkbox.select() if backup_val == "1" else self.backup_checkbox.deselect()
+        update_val = get_setting(KEY_AUTO_UPDATE, str(int(DEFAULT_AUTO_UPDATE_ENABLED)))
+        self.update_checkbox.select() if update_val == "1" else self.update_checkbox.deselect()
 
-        auto_update_enabled_val = keyring.get_password(
-            SERVICE_NAME, "auto_update_enabled"
-        )
-        if (auto_update_enabled_val or str(int(DEFAULT_AUTO_UPDATE_ENABLED))) == "1":
-            self.update_checkbox.select()
-        else:
-            self.update_checkbox.deselect()
+        self.save_button.configure(state="disabled")
 
     def confirm_and_reset(self) -> None:
-        answer = messagebox.askyesno(
-            "Confirm Reset", "Are you sure you want to delete all saved settings?"
-        )
-        if answer:
-            keys_to_delete = [
-                "braze_api_key",
-                "transifex_api_token",
-                "braze_endpoint",
-                "transifex_org",
-                "transifex_project",
-                "backup_path",
-                "log_level",
-                "backup_enabled",
-                "auto_update_enabled",
-            ]
-            for key in keys_to_delete:
+        if messagebox.askyesno("Confirm Reset", "Are you sure?"):
+            for key in MANAGED_SETTINGS_KEYS:
                 try:
                     keyring.delete_password(SERVICE_NAME, key)
                 except keyring.errors.PasswordNotFoundError:
@@ -256,27 +334,18 @@ class SettingsWindow(customtkinter.CTkToplevel):
             self.load_settings()
             messagebox.showinfo("Success", "All settings have been reset.")
 
-    def test_connections(self) -> None:
-        """Tests the Braze and Transifex API connections using current input."""
-        braze_key = self.braze_api_key_entry.get()
-        braze_endpoint = self.braze_endpoint_entry.get()
-        tx_token = self.transifex_api_token_entry.get()
-        tx_org = self.transifex_org_slug_entry.get()
-        tx_project = self.transifex_project_slug_entry.get()
+    def _test_braze_connection_from_ui(self):
+        key = self.braze_api_key_entry.get()
+        endpoint = self.braze_endpoint_entry.get()
+        status, msg = self._test_braze_connection(key, endpoint)
+        messagebox.showinfo("Braze Connection Test", f"{status}: {msg}")
 
-        results = []
-
-        # Test Braze Connection
-        braze_status, braze_msg = self._test_braze_connection(braze_key, braze_endpoint)
-        results.append(f"Braze Connection: {braze_status} - {braze_msg}")
-
-        # Test Transifex Connection
-        transifex_status, transifex_msg = self._test_transifex_connection(
-            tx_token, tx_org, tx_project
-        )
-        results.append(f"Transifex Connection: {transifex_status} - {transifex_msg}")
-
-        messagebox.showinfo("Connection Test Results", "\n".join(results))
+    def _test_transifex_connection_from_ui(self):
+        token = self.transifex_api_token_entry.get()
+        org = self.transifex_org_slug_entry.get()
+        project = self.transifex_project_slug_entry.get()
+        status, msg = self._test_transifex_connection(token, org, project)
+        messagebox.showinfo("Transifex Connection Test", f"{status}: {msg}")
 
     def _test_braze_connection(self, api_key: str, endpoint: str) -> tuple[str, str]:
         if not api_key or not endpoint:
@@ -284,7 +353,6 @@ class SettingsWindow(customtkinter.CTkToplevel):
         session = requests.Session()
         session.headers.update({"Authorization": f"Bearer {api_key}"})
         try:
-            # Use a lightweight endpoint, e.g., fetching a small list
             response = session.get(
                 f"{endpoint}/templates/email/list?limit=1", timeout=10
             )
@@ -294,12 +362,8 @@ class SettingsWindow(customtkinter.CTkToplevel):
             if e.response.status_code == 401:
                 return "FAILED", "Invalid Braze API Key or Endpoint."
             return "FAILED", f"Braze API Error: {e.response.status_code}"
-        except requests.exceptions.ConnectionError:
-            return "FAILED", "Could not connect to Braze endpoint."
-        except requests.exceptions.Timeout:
-            return "FAILED", "Braze connection timed out."
-        except Exception as e:
-            return "FAILED", f"An unexpected error testing Braze: {e}"
+        except requests.exceptions.RequestException:
+            return "FAILED", "Could not connect to Braze."
 
     def _test_transifex_connection(
         self, api_token: str, org_slug: str, project_slug: str
@@ -314,7 +378,6 @@ class SettingsWindow(customtkinter.CTkToplevel):
             }
         )
         try:
-            # Use a lightweight endpoint to check project existence
             project_id = f"o:{org_slug}:p:{project_slug}"
             response = session.get(
                 f"{TRANSIFEX_API_BASE_URL}/projects/{project_id}", timeout=10
@@ -325,11 +388,7 @@ class SettingsWindow(customtkinter.CTkToplevel):
             if e.response.status_code == 401:
                 return "FAILED", "Invalid Transifex API Token."
             elif e.response.status_code == 404:
-                return ("FAILED", "Transifex Org or Project Slug not found/accessible.")
+                return "FAILED", "Transifex Org or Project Slug not found."
             return "FAILED", f"Transifex API Error: {e.response.status_code}"
-        except requests.exceptions.ConnectionError:
-            return "FAILED", "Could not connect to Transifex endpoint."
-        except requests.exceptions.Timeout:
-            return "FAILED", "Transifex connection timed out."
-        except Exception as e:
-            return "FAILED", f"An unexpected error testing Transifex: {e}"
+        except requests.exceptions.RequestException:
+            return "FAILED", "Could not connect to Transifex."
