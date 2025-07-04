@@ -233,17 +233,22 @@ class App(customtkinter.CTk):
             self.update_button.configure(state="normal", text="Install Now")
             return
 
-        # Use the default installer which can handle restarts on Windows
-        if self.tufup_client.download_and_apply_update(
-            target=self.new_update_info, confirm=False, force=True
-        ):
-            self.log_message("Update successful. Closing to complete installation...")
-            # CRUCIAL STEP: Schedule the app to close.
-            # This releases the file lock so the tufup installer can proceed.
-            # We use `after` to make sure this is run on the main GUI thread.
-            self.after(100, self.destroy)
-        else:
-            self.log_message("[ERROR] Update failed.")
+        try:
+            # Get the path to our custom installer script
+            install_script_path = resource_path("install_update.py")
+
+            # Pass the path to our custom script to tufup.
+            if self.tufup_client.download_and_apply_update(
+                target=self.new_update_info,
+                install=install_script_path,
+            ):
+                # The tufup process will handle the restart on its own
+                self.log_message("Update successful. Restarting...")
+            else:
+                self.log_message("[ERROR] Update failed.")
+                self.update_button.configure(state="normal", text="Install Now")
+        except Exception as e:
+            self.log_message(f"[ERROR] An unexpected error occurred: {e}")
             self.update_button.configure(state="normal", text="Install Now")
 
     def force_update_check(self):
