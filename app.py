@@ -1,4 +1,5 @@
 # app.py
+import os
 import customtkinter
 import keyring
 import threading
@@ -8,11 +9,12 @@ import sys
 import shutil
 import platform
 import requests
-import os
+import subprocess
 from tkinter import messagebox
 from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
+
 from tufup.client import Client
 
 # Import from our other modules
@@ -111,6 +113,17 @@ def check_for_updates(app_instance):
 
     except Exception as e:
         logger.error(f"Update check failed: {repr(e)}")
+
+
+def cleanup_old_updates():
+    """On startup, delete any leftover .old files from previous updates."""
+    install_dir = Path(sys.executable).parent
+    for old_file in install_dir.glob("*.old"):
+        try:
+            old_file.unlink()
+            print(f"Removed old update file: {old_file.name}")
+        except OSError:
+            pass
 
 
 class App(customtkinter.CTk):
@@ -230,8 +243,7 @@ class App(customtkinter.CTk):
 
     def threaded_apply(self):
         """
-        Manually downloads the update file using the requests library and
-        then opens the folder for the user.
+        Handles the update process differently for production vs. development.
         """
         if not self.tufup_client or not self.new_update_info:
             self.log_message("[ERROR] Update client not initialized.")
@@ -239,33 +251,92 @@ class App(customtkinter.CTk):
             return
 
         try:
-            # 1. Construct the download URL from the tufup client info
-            target_filename = self.new_update_info.filename
-            download_url = self.tufup_client.target_base_url + target_filename
-            local_archive_path = self.tufup_client.target_dir / target_filename
+            # NOTE: The "Downloading update..." log message is now only in the
+            # `apply_update` method to prevent duplication.
 
-            self.log_message(f"Downloading update from: {download_url}")
-
-            # 2. Manually download the file
-            with requests.get(download_url, stream=True) as r:
-                r.raise_for_status()
-                with open(local_archive_path, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-
-            # 3. Open the containing folder for the user to manually install
-            archive_dir = local_archive_path.parent
-            self.log_message(f"Update downloaded to: {archive_dir}")
-            self.log_message(
-                "Please close this application and extract the new version."
+            # 1. Download the update archive
+            archive_path = (
+                Path(self.tufup_client.target_dir) / self.new_update_info.filename
             )
 
-            if platform.system() == "Windows":
-                os.startfile(archive_dir)
-            else:
-                webbrowser.open(f"file://{archive_dir}")
+            platform_system = platform.system().lower()
+            platform_suffix = (
+                "win"
+                if platform_system == "windows"
+                else "mac"
+                if platform_system == "darwin"
+                else "linux"
+            )
+            target_base_url = f"{UPDATE_URL}{platform_suffix}/targets/"
+            download_url = target_base_url + self.new_update_info.filename
 
-            self.after(100, self.update_frame.grid_remove)
+            with requests.get(download_url, stream=True) as r:
+                r.raise_for_status()
+                with open(archive_path, "wb") as f:
+                    shutil.copyfileobj(r.raw, f)
+            self.log_message("Download complete.")
+
+            # 2. Check if we are in a compiled application or local dev script
+            if is_production_environment():
+                # --- PRODUCTION LOGIC ---
+                self.log_message("Preparing to install update...")
+
+                temp_extract_dir = archive_path.parent / "temp_update"
+                if temp_extract_dir.exists():
+                    shutil.rmtree(temp_extract_dir)
+                shutil.unpack_archive(archive_path, temp_extract_dir)
+                source_dir = next(temp_extract_dir.iterdir())
+
+                app_install_dir = Path(sys.executable).parent
+                app_exe_name = Path(sys.executable).name
+
+                # Create and launch the appropriate installer script
+                if platform_system == "windows":
+                    script_path = app_install_dir / "update_installer.bat"
+                    script_content = f"""
+@echo off
+timeout /t 2 /nobreak > NUL
+xcopy "{source_dir}" "{app_install_dir}" /y /e /i /q
+start "" "{app_install_dir}\\{app_exe_name}"
+del "{archive_path}"
+rmdir /s /q "{temp_extract_dir}"
+del "%~f0"
+"""
+                    subprocess.Popen(
+                        [script_path], creationflags=subprocess.DETACHED_PROCESS
+                    )
+                else:
+                    script_path = app_install_dir / "update_installer.sh"
+                    script_content = f"""
+#!/bin/bash
+sleep 2
+cp -R "{source_dir}/." "{app_install_dir}/"
+rm -f "{archive_path}"
+rm -rf "{temp_extract_dir}"
+(setsid "{app_install_dir}/{app_exe_name}" &)
+rm -- "$0"
+"""
+                    with open(script_path, "w") as f:
+                        f.write(script_content)
+                    script_path.chmod(0o755)
+                    subprocess.Popen(str(script_path), shell=True)
+
+                self.log_message("Closing to complete update...")
+                self.after(200, self.destroy)
+
+            else:
+                # --- LOCAL DEVELOPMENT LOGIC ---
+                archive_dir = archive_path.parent
+                self.log_message(f"LOCAL DEV: Update downloaded to {archive_dir}")
+                self.log_message("Installation is skipped when running from source.")
+
+                if platform_system == "windows":
+                    os.startfile(archive_dir)
+                else:
+                    webbrowser.open(f"file://{archive_dir}")
+
+                self.update_button.configure(state="normal", text="Install Now")
+                self.update_frame.grid_remove()
 
         except Exception as e:
             self.log_message(f"[ERROR] An unexpected error occurred: {e}")
@@ -407,6 +478,8 @@ class App(customtkinter.CTk):
 
 
 if __name__ == "__main__":
+    if is_production_environment():
+        cleanup_old_updates()  # Run cleanup on startup
     customtkinter.set_appearance_mode("System")
     customtkinter.set_default_color_theme("blue")
     app = App()
