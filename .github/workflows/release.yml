@@ -41,7 +41,6 @@ jobs:
           --add-data "assets${{ env.pathsep }}assets"
           --add-data "README.md${{ env.pathsep }}."
           --add-data "repository/metadata/root.json${{ env.pathsep }}repository/metadata"
-          --add-data "install_update.py${{ env.pathsep }}."
           app.py
         env:
           pathsep: "${{ runner.os == 'Windows' && ';' || ':' }}"
