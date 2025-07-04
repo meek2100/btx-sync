@@ -1,5 +1,4 @@
 # app.py
-import os
 import customtkinter
 import keyring
 import threading
@@ -243,7 +242,8 @@ class App(customtkinter.CTk):
 
     def threaded_apply(self):
         """
-        Handles the update process differently for production vs. development.
+        Downloads the update, then creates and launches a platform-specific
+        installer script to complete the update and restart the application.
         """
         if not self.tufup_client or not self.new_update_info:
             self.log_message("[ERROR] Update client not initialized.")
@@ -251,10 +251,7 @@ class App(customtkinter.CTk):
             return
 
         try:
-            # NOTE: The "Downloading update..." log message is now only in the
-            # `apply_update` method to prevent duplication.
-
-            # 1. Download the update archive
+            # 1. Download and extract the update
             archive_path = (
                 Path(self.tufup_client.target_dir) / self.new_update_info.filename
             )
@@ -276,24 +273,21 @@ class App(customtkinter.CTk):
                     shutil.copyfileobj(r.raw, f)
             self.log_message("Download complete.")
 
-            # 2. Check if we are in a compiled application or local dev script
-            if is_production_environment():
-                # --- PRODUCTION LOGIC ---
-                self.log_message("Preparing to install update...")
+            temp_extract_dir = archive_path.parent / "temp_update"
+            if temp_extract_dir.exists():
+                shutil.rmtree(temp_extract_dir)
+            shutil.unpack_archive(archive_path, temp_extract_dir)
+            source_dir = next(temp_extract_dir.iterdir())
 
-                temp_extract_dir = archive_path.parent / "temp_update"
-                if temp_extract_dir.exists():
-                    shutil.rmtree(temp_extract_dir)
-                shutil.unpack_archive(archive_path, temp_extract_dir)
-                source_dir = next(temp_extract_dir.iterdir())
+            self.log_message("Preparing to install update...")
 
-                app_install_dir = Path(sys.executable).parent
-                app_exe_name = Path(sys.executable).name
+            # 2. Create and launch a platform-specific installer script
+            app_install_dir = Path(sys.executable).parent
+            app_exe_name = Path(sys.executable).name
 
-                # Create and launch the appropriate installer script
-                if platform_system == "windows":
-                    script_path = app_install_dir / "update_installer.bat"
-                    script_content = f"""
+            if platform_system == "windows":
+                script_path = app_install_dir / "update_installer.bat"
+                script_content = f"""
 @echo off
 timeout /t 2 /nobreak > NUL
 xcopy "{source_dir}" "{app_install_dir}" /y /e /i /q
@@ -302,12 +296,15 @@ del "{archive_path}"
 rmdir /s /q "{temp_extract_dir}"
 del "%~f0"
 """
-                    subprocess.Popen(
-                        [script_path], creationflags=subprocess.DETACHED_PROCESS
-                    )
-                else:
-                    script_path = app_install_dir / "update_installer.sh"
-                    script_content = f"""
+                with open(script_path, "w") as f:
+                    f.write(script_content)
+
+                # Use shell=True with the `start` command for robust execution on Windows
+                subprocess.Popen(f'start "" "{script_path}"', shell=True)
+
+            else:  # For macOS and Linux
+                script_path = app_install_dir / "update_installer.sh"
+                script_content = f"""
 #!/bin/bash
 sleep 2
 cp -R "{source_dir}/." "{app_install_dir}/"
@@ -316,27 +313,14 @@ rm -rf "{temp_extract_dir}"
 (setsid "{app_install_dir}/{app_exe_name}" &)
 rm -- "$0"
 """
-                    with open(script_path, "w") as f:
-                        f.write(script_content)
-                    script_path.chmod(0o755)
-                    subprocess.Popen(str(script_path), shell=True)
+                with open(script_path, "w") as f:
+                    f.write(script_content)
+                script_path.chmod(0o755)
+                subprocess.Popen(str(script_path), shell=True)
 
-                self.log_message("Closing to complete update...")
-                self.after(200, self.destroy)
-
-            else:
-                # --- LOCAL DEVELOPMENT LOGIC ---
-                archive_dir = archive_path.parent
-                self.log_message(f"LOCAL DEV: Update downloaded to {archive_dir}")
-                self.log_message("Installation is skipped when running from source.")
-
-                if platform_system == "windows":
-                    os.startfile(archive_dir)
-                else:
-                    webbrowser.open(f"file://{archive_dir}")
-
-                self.update_button.configure(state="normal", text="Install Now")
-                self.update_frame.grid_remove()
+            # 3. Close the application
+            self.log_message("Closing to complete update...")
+            self.after(200, self.destroy)
 
         except Exception as e:
             self.log_message(f"[ERROR] An unexpected error occurred: {e}")
