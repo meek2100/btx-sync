@@ -287,20 +287,27 @@ class App(customtkinter.CTk):
 
             if platform_system == "windows":
                 script_path = app_install_dir / "update_installer.bat"
+                # --- THIS IS THE FIX ---
+                # Added /D flag to the `start` command to set the working directory,
+                # which prevents the Python DLL error on relaunch.
                 script_content = f"""
 @echo off
 timeout /t 2 /nobreak > NUL
 xcopy "{source_dir}" "{app_install_dir}" /y /e /i /q
-start "" "{app_install_dir}\\{app_exe_name}"
+cd /d "{app_install_dir}"
+start "" /D "{app_install_dir}" "{app_exe_name}"
 del "{archive_path}"
 rmdir /s /q "{temp_extract_dir}"
-del "%~f0"
+(goto) 2>nul & del "%~f0"
 """
                 with open(script_path, "w") as f:
                     f.write(script_content)
 
-                # Use shell=True with the `start` command for robust execution on Windows
-                subprocess.Popen(f'start "" "{script_path}"', shell=True)
+                subprocess.Popen(
+                    f'"{script_path}"',
+                    shell=True,
+                    creationflags=subprocess.DETACHED_PROCESS,
+                )
 
             else:  # For macOS and Linux
                 script_path = app_install_dir / "update_installer.sh"
@@ -310,7 +317,8 @@ sleep 2
 cp -R "{source_dir}/." "{app_install_dir}/"
 rm -f "{archive_path}"
 rm -rf "{temp_extract_dir}"
-(setsid "{app_install_dir}/{app_exe_name}" &)
+cd "{app_install_dir}"
+(setsid "./{app_exe_name}" &)
 rm -- "$0"
 """
                 with open(script_path, "w") as f:
