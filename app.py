@@ -45,14 +45,15 @@ UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
 def check_for_updates(app_instance):
     """
-    Checks for app updates and triggers the GUI notification if a new version
-    is found. It stores the tufup client instance for later use.
+    Checks for app updates and displays a notification bar if a new version
+    is found. Log messages are now sent to debug to keep the check silent.
     """
     logger = AppLogger(
         app_instance.log_message,
         app_instance.get_current_config().get("LOG_LEVEL", "Normal"),
     )
-    logger.info("Checking for updates...")
+    # This message will now only appear in debug mode
+    logger.debug("Checking for updates...")
 
     platform_system = platform.system().lower()
     if platform_system == "windows":
@@ -98,11 +99,13 @@ def check_for_updates(app_instance):
         new_update = client.check_for_updates(pre="a")
 
         if new_update:
-            logger.info(f"Update {new_update.version} found.")
+            # The blue bar is the primary notification; log this for debug purposes.
+            logger.debug(f"Update {new_update.version} found.")
             app_instance.tufup_client = client
             app_instance.show_update_notification(new_update)
         else:
-            logger.info("Application is up to date.")
+            # This message will now only appear in debug mode.
+            logger.debug("Application is up to date.")
 
     except Exception as e:
         logger.error(f"Update check failed: {repr(e)}")
