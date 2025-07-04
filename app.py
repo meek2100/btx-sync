@@ -277,7 +277,6 @@ class App(customtkinter.CTk):
             if temp_extract_dir.exists():
                 shutil.rmtree(temp_extract_dir)
             shutil.unpack_archive(archive_path, temp_extract_dir)
-            source_dir = next(temp_extract_dir.iterdir())
 
             self.log_message("Preparing to install update...")
 
@@ -288,12 +287,11 @@ class App(customtkinter.CTk):
             if platform_system == "windows":
                 script_path = app_install_dir / "update_installer.bat"
                 # --- THIS IS THE FIX ---
-                # Added /D flag to the `start` command to set the working directory,
-                # which prevents the Python DLL error on relaunch.
+                # The source for xcopy is the temp_extract_dir itself, not a subdirectory.
                 script_content = f"""
 @echo off
 timeout /t 2 /nobreak > NUL
-xcopy "{source_dir}" "{app_install_dir}" /y /e /i /q
+xcopy "{temp_extract_dir}" "{app_install_dir}" /y /e /i /q
 cd /d "{app_install_dir}"
 start "" /D "{app_install_dir}" "{app_exe_name}"
 del "{archive_path}"
@@ -314,7 +312,7 @@ rmdir /s /q "{temp_extract_dir}"
                 script_content = f"""
 #!/bin/bash
 sleep 2
-cp -R "{source_dir}/." "{app_install_dir}/"
+cp -R "{temp_extract_dir}/." "{app_install_dir}/"
 rm -f "{archive_path}"
 rm -rf "{temp_extract_dir}"
 cd "{app_install_dir}"
