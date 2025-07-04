@@ -233,21 +233,16 @@ class App(customtkinter.CTk):
             self.update_button.configure(state="normal", text="Install Now")
             return
 
-        # Add `force=True` to bypass the installation path safety check
-        # that occurs when running in a local development environment.
+        # In production, the install dir is the app's current directory.
+        # This logic is now handled by tufup's default behavior.
+        self.tufup_client.app_install_dir = Path(sys.executable).parent
+
+        # Use confirm=False and force=True to ensure the default installer
+        # runs without any interactive prompts for a seamless update.
         if self.tufup_client.download_and_apply_update(
             target=self.new_update_info, confirm=False, force=True
         ):
-            self.log_message("Update successful. Please restart the application.")
-        else:
-            self.log_message("[ERROR] Update failed.")
-            self.update_button.configure(state="normal", text="Install Now")
-            return
-
-        if self.tufup_client.download_and_apply_update(
-            target=self.new_update_info, confirm=False
-        ):
-            self.log_message("Update successful. Please restart the application.")
+            self.log_message("Update successful. The application will now restart.")
         else:
             self.log_message("[ERROR] Update failed.")
             self.update_button.configure(state="normal", text="Install Now")
