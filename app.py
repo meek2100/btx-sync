@@ -233,16 +233,15 @@ class App(customtkinter.CTk):
             self.update_button.configure(state="normal", text="Install Now")
             return
 
-        # In production, the install dir is the app's current directory.
-        # This logic is now handled by tufup's default behavior.
-        self.tufup_client.app_install_dir = Path(sys.executable).parent
-
-        # Use confirm=False and force=True to ensure the default installer
-        # runs without any interactive prompts for a seamless update.
+        # Use the default installer which can handle restarts on Windows
         if self.tufup_client.download_and_apply_update(
             target=self.new_update_info, confirm=False, force=True
         ):
-            self.log_message("Update successful. The application will now restart.")
+            self.log_message("Update successful. Closing to complete installation...")
+            # CRUCIAL STEP: Schedule the app to close.
+            # This releases the file lock so the tufup installer can proceed.
+            # We use `after` to make sure this is run on the main GUI thread.
+            self.after(100, self.destroy)
         else:
             self.log_message("[ERROR] Update failed.")
             self.update_button.configure(state="normal", text="Install Now")
