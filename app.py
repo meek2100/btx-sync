@@ -286,16 +286,12 @@ class App(customtkinter.CTk):
 
             if platform_system == "windows":
                 script_path = app_install_dir / "update_installer.bat"
-                # --- THIS IS THE FIX ---
-                # The source for xcopy is the temp_extract_dir itself.
-                # The incorrect line that searched for a subdirectory has been removed.
                 script_content = f"""
 @echo off
-echo Updating application... please wait.
 timeout /t 3 /nobreak > NUL
 xcopy "{temp_extract_dir}" "{app_install_dir}" /y /e /i /q
 cd /d "{app_install_dir}"
-start "" "{app_exe_name}"
+start "" /b "{app_exe_name}"
 del "{archive_path}"
 rmdir /s /q "{temp_extract_dir}"
 (goto) 2>nul & del "%~f0"
@@ -303,11 +299,8 @@ rmdir /s /q "{temp_extract_dir}"
                 with open(script_path, "w") as f:
                     f.write(script_content)
 
-                subprocess.Popen(
-                    f'"{script_path}"',
-                    shell=True,
-                    creationflags=subprocess.DETACHED_PROCESS,
-                )
+                # Use `start /b` to launch the script in the background
+                subprocess.Popen(f'start /b "" "{script_path}"', shell=True)
 
             else:  # For macOS and Linux
                 script_path = app_install_dir / "update_installer.sh"
