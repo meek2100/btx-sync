@@ -7,6 +7,7 @@ import webbrowser
 import sys
 import shutil
 import platform
+import requests
 import os
 from tkinter import messagebox
 from pathlib import Path
@@ -229,41 +230,42 @@ class App(customtkinter.CTk):
 
     def threaded_apply(self):
         """
-        Downloads the update and then opens the folder for the user to
-        manually install, bypassing the problematic automatic installer.
+        Manually downloads the update file using the requests library and
+        then opens the folder for the user.
         """
-        if not self.tufup_client:
+        if not self.tufup_client or not self.new_update_info:
             self.log_message("[ERROR] Update client not initialized.")
             self.update_button.configure(state="normal", text="Install Now")
             return
 
         try:
-            # Use the download_update method which only downloads the file
-            # and returns its path without trying to install.
-            downloaded_archive_path = self.tufup_client.download_update(
-                target=self.new_update_info
+            # 1. Construct the download URL from the tufup client info
+            target_filename = self.new_update_info.filename
+            download_url = self.tufup_client.target_base_url + target_filename
+            local_archive_path = self.tufup_client.target_dir / target_filename
+
+            self.log_message(f"Downloading update from: {download_url}")
+
+            # 2. Manually download the file
+            with requests.get(download_url, stream=True) as r:
+                r.raise_for_status()
+                with open(local_archive_path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+            # 3. Open the containing folder for the user to manually install
+            archive_dir = local_archive_path.parent
+            self.log_message(f"Update downloaded to: {archive_dir}")
+            self.log_message(
+                "Please close this application and extract the new version."
             )
 
-            if downloaded_archive_path:
-                archive_dir = downloaded_archive_path.parent
-                self.log_message(f"Update downloaded to: {archive_dir}")
-                self.log_message(
-                    "Please close the application and extract the new version."
-                )
-
-                # Open the folder containing the downloaded archive
-                # os.startfile() is Windows-specific and works well here
-                if platform.system() == "Windows":
-                    os.startfile(archive_dir)
-                else:
-                    # Fallback for macOS/Linux
-                    webbrowser.open(f"file://{archive_dir}")
-
-                # Since installation is now manual, we can simply hide the bar
-                self.after(100, self.update_frame.grid_remove)
+            if platform.system() == "Windows":
+                os.startfile(archive_dir)
             else:
-                self.log_message("[ERROR] Update download failed.")
-                self.update_button.configure(state="normal", text="Install Now")
+                webbrowser.open(f"file://{archive_dir}")
+
+            self.after(100, self.update_frame.grid_remove)
 
         except Exception as e:
             self.log_message(f"[ERROR] An unexpected error occurred: {e}")
