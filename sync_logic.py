@@ -29,7 +29,35 @@ class BrazeClient:
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
         self.base_url = endpoint
         self.logger = logger
-        self.api_call_delay = 0.2
+        # This is now a fallback, only used if the server doesn't specify a
+        # `Retry-After` duration on a 429 error.
+        self.api_call_delay = 1.0
+
+    def _make_request(self, method: str, url: str, **kwargs) -> requests.Response:
+        """
+        Makes an API request and handles rate-limiting (429) errors.
+        """
+        while True:
+            try:
+                response = self.session.request(method, url, **kwargs)
+                response.raise_for_status()
+                return response
+            except requests.exceptions.HTTPError as e:
+                # Check if the error is a rate-limit error
+                if e.response.status_code == 429:
+                    # Respect the server's requested wait time if available
+                    retry_after = int(e.response.headers.get("Retry-After", 0))
+                    wait_time = retry_after if retry_after > 0 else self.api_call_delay
+                    self.logger.info(
+                        f"Rate limit hit. Waiting for {wait_time} seconds."
+                    )
+                    time.sleep(wait_time)
+                else:
+                    # Re-raise other HTTP errors
+                    raise
+            except requests.exceptions.RequestException as e:
+                self.logger.error(f"A network error occurred: {e}")
+                raise
 
     def get_paginated_list(self, endpoint: str, list_key: str) -> list[dict[str, Any]]:
         """Fetches a complete list of items from a paginated Braze endpoint."""
@@ -37,15 +65,13 @@ class BrazeClient:
         offset = 0
         limit = 100
         while True:
-            time.sleep(self.api_call_delay)
             base_url = f"{self.base_url}{endpoint}?limit={limit}"
             if offset > 0:
                 url = f"{base_url}&offset={offset}"
             else:
                 url = base_url
             self.logger.info(f"Fetching {list_key} from Braze: offset {offset}")
-            response = self.session.get(url, timeout=30)
-            response.raise_for_status()
+            response = self._make_request("GET", url, timeout=30)
             data = response.json()
             items = data.get(list_key, [])
             if not items:
@@ -58,15 +84,14 @@ class BrazeClient:
 
     def get_item_details(self, endpoint: str, item_id: str) -> dict[str, Any]:
         """Fetches detailed information for a single Braze item."""
-        time.sleep(self.api_call_delay)
         id_param_name = endpoint.split("/")[-1] + "_id"
         url = f"{self.base_url}{endpoint}?{id_param_name}={item_id}"
         self.logger.info(f"  > Fetching details for ID: {item_id}")
-        response = self.session.get(url, timeout=30)
-        response.raise_for_status()
+        response = self._make_request("GET", url, timeout=30)
         return response.json()
 
 
+# ... [rest of the file remains unchanged] ...
 class TransifexClient:
     """A client to handle interactions with the Transifex API."""
 
@@ -86,6 +111,7 @@ class TransifexClient:
         resource_id = f"{self.project_id}:r:{slug}"
         url = f"{TRANSIFEX_API_BASE_URL}/resources/{resource_id}"
         response = self.session.get(url, timeout=30)
+
         if response.status_code == 404:
             self.logger.info(f"  > Resource '{slug}' not found. Creating...")
             self._create_resource(slug, name)
@@ -143,6 +169,7 @@ class TransifexClient:
         if not content_dict:
             self.logger.info("  > No content to upload. Skipping.")
             return
+
         resource_id = f"{self.project_id}:r:{resource_slug}"
         url = f"{TRANSIFEX_API_BASE_URL}/resource_strings_async_uploads"
         payload = {
@@ -178,12 +205,14 @@ def perform_tmx_backup(
     if not backup_path_str:
         logger.error("Backup path is not defined. Skipping backup.")
         return True
+
     backup_path = Path(backup_path_str)
     backup_path.mkdir(parents=True, exist_ok=True)
     project_id = (
         f"o:{config.get('TRANSIFEX_ORGANIZATION_SLUG')}"
         f":p:{config.get('TRANSIFEX_PROJECT_SLUG')}"
     )
+
     try:
         logger.info("  > Requesting TMX file for all languages from Transifex...")
         post_url = f"{TRANSIFEX_API_BASE_URL}/tmx_async_downloads"
@@ -202,27 +231,36 @@ def perform_tmx_backup(
         job_id = response.json()["data"]["id"]
         status_url = f"{TRANSIFEX_API_BASE_URL}/tmx_async_downloads/{job_id}"
         logger.info(f"  > Backup job created successfully. ID: {job_id}")
+
     except requests.exceptions.RequestException as e:
         logger.fatal(f"A network error occurred: {e}")
         return False
     except Exception as e:
         logger.fatal(f"An unexpected error occurred starting TMX backup job: {e}")
         return False
+
     try:
         logger.info("  > Waiting for Transifex to process the file...")
-        timeout = time.time() + 300
+        timeout = time.time() + 300  # 5-minute timeout
         file_content = None
+        # Start with a 5-second poll, backing off exponentially to a max of 30s.
+        # This is efficient and respects the server's resources.
         poll_interval = 5
         max_poll_interval = 30
+
         while time.time() < timeout:
             if cancel_event.is_set():
                 raise CancellationError("Backup process cancelled by user.")
+
             response = transifex_session.get(status_url, timeout=30)
             response.raise_for_status()
+
             content_type = response.headers.get("Content-Type", "")
+
             if "application/vnd.api+json" in content_type:
                 status_data = response.json()
                 status = status_data.get("data", {}).get("attributes", {}).get("status")
+
                 if status == "completed":
                     download_url = status_data["data"]["links"]["download"]
                     logger.info("  > File ready for download.")
@@ -233,12 +271,14 @@ def perform_tmx_backup(
                 elif status == "failed":
                     logger.error("Transifex reported the backup job failed.")
                     return False
+
                 logger.debug(
                     f"Current job status: '{status}'. "
                     f"Polling again in {poll_interval}s."
                 )
                 time.sleep(poll_interval)
                 poll_interval = min(poll_interval * 2, max_poll_interval)
+            # The API may directly return the file if it was cached or processed instantly.
             elif (
                 "text/xml" in content_type or "application/octet-stream" in content_type
             ):
@@ -248,9 +288,11 @@ def perform_tmx_backup(
             else:
                 logger.error(f"Unexpected content type: '{content_type}'.")
                 return False
+
         if file_content is None:
             logger.error("TMX backup job timed out after 5 minutes.")
             return False
+
         timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
         filename = (
             f"backup_{config.get('TRANSIFEX_PROJECT_SLUG')}_all_langs_{timestamp}.tmx"
@@ -260,6 +302,7 @@ def perform_tmx_backup(
             f.write(file_content)
         logger.info(f"  > SUCCESS: Backup saved to {filepath}")
         return True
+
     except CancellationError:
         raise
     except requests.exceptions.RequestException as e:
@@ -296,6 +339,7 @@ def sync_logic_main(
             config["TRANSIFEX_PROJECT_SLUG"],
             logger,
         )
+
         check_for_cancel("Starting sync process...")
         if config.get("BACKUP_ENABLED", False):
             if not perform_tmx_backup(config, tx.session, logger, cancel_event):
@@ -304,6 +348,7 @@ def sync_logic_main(
             logger.info("--- TMX Backup complete. Proceeding with sync. ---\n")
         else:
             logger.info("TMX backup is disabled. Skipping.")
+
         check_for_cancel("\n[1] Processing Email Templates...")
         logger.info("\n[1] Processing Email Templates...")
         templates = braze.get_paginated_list("/templates/email/list", "templates")
@@ -322,6 +367,7 @@ def sync_logic_main(
                 if details.get(f) and str(details.get(f)).strip()
             }
             tx.upload_source_content(content, resource_slug=template_id)
+
         check_for_cancel("\n[2] Processing Content Blocks...")
         logger.info("\n[2] Processing Content Blocks...")
         blocks = braze.get_paginated_list("/content_blocks/list", "content_blocks")
@@ -339,7 +385,9 @@ def sync_logic_main(
                 if details.get(f) and str(details.get(f)).strip()
             }
             tx.upload_source_content(content, resource_slug=block_id)
+
         logger.info("\n--- Sync Complete! ---")
+
     except CancellationError as e:
         logger.info(f"\n--- {e} ---")
     except requests.exceptions.HTTPError as e:
@@ -355,7 +403,5 @@ def sync_logic_main(
                 logger.error(f"Response Content: {e.response.text}")
     except requests.exceptions.RequestException as e:
         logger.fatal(f"A network error occurred: {e}")
-    # FIX: Removed unreachable `except KeyError` block. The application's robust
-    # use of .get() prevents this from being raised in the tested scenarios.
     except Exception as e:
         logger.fatal(f"An unexpected error occurred: {e}")
