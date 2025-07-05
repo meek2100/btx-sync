@@ -16,7 +16,6 @@ from customtkinter import CTkImage
 
 from tufup.client import Client
 
-# Import from our other modules
 from constants import (
     DEV_AUTO_UPDATE_ENABLED,
     DEFAULT_AUTO_UPDATE_ENABLED,
@@ -35,13 +34,11 @@ from sync_logic import sync_logic_main
 from utils import resource_path, is_production_environment
 from logger import AppLogger
 
-# --- Dynamic Version Configuration ---
 try:
     from version import __version__ as APP_VERSION  # type: ignore
 except ImportError:
     APP_VERSION = "0.0.0-dev"
 
-# --- Tufup Configuration ---
 APP_NAME = "btx-sync"
 UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
@@ -55,7 +52,6 @@ def check_for_updates(app_instance):
         app_instance.log_message,
         app_instance.get_current_config().get("LOG_LEVEL", "Normal"),
     )
-    # This message will now only appear in debug mode
     logger.debug("Checking for updates...")
 
     platform_system = platform.system().lower()
@@ -102,12 +98,10 @@ def check_for_updates(app_instance):
         new_update = client.check_for_updates(pre="a")
 
         if new_update:
-            # The blue bar is the primary notification; log this for debug purposes.
             logger.debug(f"Update {new_update.version} found.")
             app_instance.tufup_client = client
             app_instance.show_update_notification(new_update)
         else:
-            # This message will now only appear in debug mode.
             logger.debug("Application is up to date.")
 
     except Exception as e:
@@ -135,7 +129,6 @@ class App(customtkinter.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
-        # --- UPDATE NOTIFICATION FRAME ---
         self.update_frame = customtkinter.CTkFrame(self, fg_color="#2B39B2")
         self.update_label = customtkinter.CTkLabel(
             self.update_frame, text="A new version is available!"
@@ -148,7 +141,6 @@ class App(customtkinter.CTk):
         self.new_update_info = None
         self.tufup_client = None
 
-        # --- CONTROL FRAME ---
         self.control_frame = customtkinter.CTkFrame(self, height=50)
         self.control_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
 
@@ -188,13 +180,11 @@ class App(customtkinter.CTk):
         )
         self.status_label.pack(side="left", padx=10)
 
-        # --- LOG BOX ---
         self.log_box = customtkinter.CTkTextbox(
             self, state="disabled", font=("Courier New", 12)
         )
         self.log_box.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="nsew")
 
-        # --- MENUS ---
         self.more_menu = tkinter.Menu(self, tearoff=0)
         self.more_menu.add_command(label="Settings", command=self.open_settings)
         self.more_menu.add_command(label="Help", command=self.open_help_file)
@@ -210,7 +200,6 @@ class App(customtkinter.CTk):
             label="Select All", command=self.select_all_log_text
         )
 
-        # --- INITIALIZATION ---
         self.log_box.bind("<Button-3>", self.show_right_click_menu)
         self.settings_window = None
         self.update_readiness_status()
@@ -251,7 +240,6 @@ class App(customtkinter.CTk):
             return
 
         try:
-            # 1. Download and extract the update
             archive_path = (
                 Path(self.tufup_client.target_dir) / self.new_update_info.filename
             )
@@ -280,16 +268,16 @@ class App(customtkinter.CTk):
 
             self.log_message("Preparing to install update...")
 
-            # 2. Create and launch a platform-specific installer script
             app_install_dir = Path(sys.executable).parent
             app_exe_name = Path(sys.executable).name
+            source_dir = next(temp_extract_dir.iterdir())
 
             if platform_system == "windows":
                 script_path = app_install_dir / "update_installer.bat"
                 script_content = f"""
 @echo off
 timeout /t 3 /nobreak > NUL
-xcopy "{temp_extract_dir}" "{app_install_dir}" /y /e /i /q
+xcopy "{source_dir}" "{app_install_dir}" /y /e /i /q
 cd /d "{app_install_dir}"
 start "" /b "{app_exe_name}"
 del "{archive_path}"
@@ -298,28 +286,24 @@ rmdir /s /q "{temp_extract_dir}"
 """
                 with open(script_path, "w") as f:
                     f.write(script_content)
-
-                # Use `start /b` to launch the script in the background
-                subprocess.Popen(f'start /b "" "{script_path}"', shell=True)
-
-            else:  # For macOS and Linux
+                subprocess.Popen(f'start "" /b "{script_path}"', shell=True)
+            else:
                 script_path = app_install_dir / "update_installer.sh"
                 script_content = f"""
 #!/bin/bash
 sleep 3
-cp -R "{temp_extract_dir}/." "{app_install_dir}/"
+cp -R "{source_dir}/." "{app_install_dir}/"
 rm -f "{archive_path}"
 rm -rf "{temp_extract_dir}"
 cd "{app_install_dir}"
 (setsid "./{app_exe_name}" &)
 rm -- "$0"
 """
-                with open(script_path, "w") as f:
+                with open(script_path, "w", newline="\\n") as f:
                     f.write(script_content)
                 script_path.chmod(0o755)
                 subprocess.Popen(str(script_path), shell=True)
 
-            # 3. Close the application
             self.log_message("Closing to complete update...")
             self.after(200, self.destroy)
 
@@ -464,7 +448,7 @@ rm -- "$0"
 
 if __name__ == "__main__":
     if is_production_environment():
-        cleanup_old_updates()  # Run cleanup on startup
+        cleanup_old_updates()
     customtkinter.set_appearance_mode("System")
     customtkinter.set_default_color_theme("blue")
     app = App()
