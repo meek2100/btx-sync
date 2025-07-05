@@ -1,6 +1,7 @@
 # tests/test_app.py
 
 import pytest
+import tkinter
 from unittest.mock import MagicMock
 
 from app import App, cleanup_old_updates
@@ -23,9 +24,10 @@ def mock_app(mocker):
     app_instance.update_status_label = MagicMock()
     app_instance._update_status_label_gui = MagicMock()
     app_instance.force_update_check = MagicMock()
-    # Add mocks for update-related attributes
     app_instance.new_update_info = MagicMock()
     app_instance.update_button = MagicMock()
+    # Add mock for clipboard append for context menu tests
+    app_instance.clipboard_append = MagicMock()
     return app_instance
 
 
@@ -153,17 +155,48 @@ def test_threaded_apply_success(mock_app):
 
 def test_threaded_apply_failure(mock_app):
     """Verify UI is reset correctly if the update download fails."""
-    # ARRANGE
     error_message = "Download failed"
     mock_app.new_update_info.download.side_effect = Exception(error_message)
-
-    # ACT
     App.threaded_apply(mock_app)
-
-    # ASSERT
     log_call = f"[ERROR] An unexpected error occurred during update: {error_message}"
     mock_app.log_message.assert_any_call(log_call)
     mock_app.update_button.configure.assert_called_with(
         state="normal", text="Install Now"
     )
     mock_app.new_update_info.install.assert_not_called()
+
+
+def test_copy_log_text(mock_app):
+    """Verify that selected text is copied to the clipboard."""
+    # ARRANGE
+    selected_text = "This is a log message."
+    mock_app.log_box.get.return_value = selected_text
+
+    # ACT
+    App.copy_log_text(mock_app)
+
+    # ASSERT
+    mock_app.clipboard_append.assert_called_once_with(selected_text)
+
+
+def test_copy_log_text_no_selection(mock_app):
+    """Verify that no error occurs if copy is clicked with no text selected."""
+    # ARRANGE
+    mock_app.log_box.get.side_effect = tkinter.TclError("nothing selected")
+
+    # ACT & ASSERT
+    try:
+        App.copy_log_text(mock_app)
+    except tkinter.TclError:
+        pytest.fail("TclError should be caught and handled gracefully.")
+    mock_app.clipboard_append.assert_not_called()
+
+
+def test_select_all_log_text(mock_app):
+    """Verify the select all function correctly tags all text."""
+    # ACT
+    result = App.select_all_log_text(mock_app)
+
+    # ASSERT
+    mock_app.log_box.tag_add.assert_called_once_with("sel", "1.0", "end")
+    assert result == "break"  # Important for tkinter event handling

@@ -2,6 +2,7 @@
 
 import pytest
 import requests
+import json
 import threading
 from unittest.mock import MagicMock
 
@@ -46,7 +47,6 @@ def test_sync_robust_to_missing_templates_key(mock_session, mock_config):
     as the production code uses .get() which is safe.
     """
     mock_config["BACKUP_ENABLED"] = False
-    # This response is missing the 'templates' key. The second is for content_blocks.
     mock_session.get.side_effect = [
         MagicMock(status_code=200, json=lambda: {"message": "success"}),
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
@@ -56,7 +56,6 @@ def test_sync_robust_to_missing_templates_key(mock_session, mock_config):
         mock_config, logged_messages.append, threading.Event(), mock_progress_callback
     )
     full_log = "".join(logged_messages)
-    # The sync should finish normally, not log a fatal key error.
     assert "--- Sync Complete! ---" in full_log
     assert "Missing key" not in full_log
 
@@ -73,7 +72,6 @@ def test_sync_handles_generic_exception(mock_session, mock_config):
         mock_config, logged_messages.append, threading.Event(), mock_progress_callback
     )
     full_log = "".join(logged_messages)
-    # FIX: The assertion must match the string representation of the exception.
     assert "An unexpected error occurred: An unexpected type error" in full_log
 
 
@@ -93,4 +91,50 @@ def test_backup_handles_request_exception_during_polling(mock_config):
     result = perform_tmx_backup(
         mock_config, mock_tmx_session, logger, threading.Event()
     )
+    assert result is False
+
+
+def test_sync_handles_httperror_with_non_json_response(mock_session, mock_config):
+    """
+    Verify that an HTTPError with a non-JSON response is handled gracefully
+    and logs the raw text content.
+    """
+    mock_config["BACKUP_ENABLED"] = False
+    mock_response = MagicMock(status_code=500)
+    mock_response.json.side_effect = json.JSONDecodeError("msg", "doc", 0)
+    mock_response.text = "<html><body><h1>Internal Server Error</h1></body></html>"
+    err = requests.exceptions.HTTPError("Server Error")
+    err.response = mock_response
+    err.request = MagicMock()
+    mock_session.get.side_effect = err
+    logged_messages = []
+    sync_logic_main(
+        mock_config, logged_messages.append, threading.Event(), mock_progress_callback
+    )
+    full_log = "".join(logged_messages)
+    assert "Response Content: <html>" in full_log
+
+
+def test_backup_handles_unexpected_content_type(mock_config, mocker):
+    """
+    Verify backup fails if the polling status check returns an unexpected
+    content type.
+    """
+    # ARRANGE
+    mock_tmx_session = MagicMock()
+    mock_tmx_session.post.return_value = MagicMock(
+        status_code=200, json=lambda: {"data": {"id": "job1"}}
+    )
+    # The GET call to check the job status returns an unexpected HTML response
+    mock_tmx_session.get.return_value = MagicMock(
+        status_code=200, headers={"Content-Type": "text/html"}
+    )
+    logger = AppLogger(no_op_callback)
+
+    # ACT
+    result = perform_tmx_backup(
+        mock_config, mock_tmx_session, logger, threading.Event()
+    )
+
+    # ASSERT
     assert result is False
