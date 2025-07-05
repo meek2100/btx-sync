@@ -3,18 +3,14 @@
 import pytest
 from unittest.mock import MagicMock
 
-from app import App
+from app import App, cleanup_old_updates
 
 
 @pytest.fixture
 def mock_app(mocker):
     """Creates a mock instance of the App class for testing."""
-    # Prevent the full GUI from initializing
     mocker.patch.object(App, "__init__", lambda s: None)
-
     app_instance = App()
-
-    # Add mocks for all necessary attributes
     app_instance.cancel_event = MagicMock()
     app_instance.cancel_button = MagicMock()
     app_instance.run_button = MagicMock()
@@ -26,7 +22,7 @@ def mock_app(mocker):
     app_instance.settings_window = None
     app_instance.update_status_label = MagicMock()
     app_instance._update_status_label_gui = MagicMock()
-
+    app_instance.force_update_check = MagicMock()
     return app_instance
 
 
@@ -76,15 +72,10 @@ def test_start_sync_thread_starts_thread(mock_app, mocker):
 
 def test_sync_thread_target_ui_updates(mock_app, mocker):
     """Verify that sync_thread_target updates UI and calls sync logic."""
-    # ARRANGE: Mock get_current_config to return a valid config
     valid_config = {"BRAZE_API_KEY": "key", "TRANSIFEX_API_TOKEN": "token"}
     mock_app.get_current_config.return_value = valid_config
     mock_sync_logic = mocker.patch("app.sync_logic_main")
-
-    # ACT
     App.sync_thread_target(mock_app)
-
-    # ASSERT
     mock_app.run_button.pack_forget.assert_called_once()
     mock_app.cancel_button.pack.assert_called_once()
     mock_sync_logic.assert_called_once_with(
@@ -97,15 +88,10 @@ def test_sync_thread_target_ui_updates(mock_app, mocker):
 
 def test_sync_thread_target_handles_no_config(mock_app, mocker):
     """Verify that sync_thread_target logs an error if config is missing."""
-    # ARRANGE: Mock get_current_config to return an invalid config
     invalid_config = {"BRAZE_API_KEY": "", "TRANSIFEX_API_TOKEN": ""}
     mock_app.get_current_config.return_value = invalid_config
     mock_sync_logic = mocker.patch("app.sync_logic_main")
-
-    # ACT
     App.sync_thread_target(mock_app)
-
-    # ASSERT
     mock_sync_logic.assert_not_called()
     mock_app.log_message.assert_any_call("--- CONFIGURATION ERROR ---")
 
@@ -121,11 +107,40 @@ def test_open_settings_focuses_existing_window(mock_app):
 def test_open_settings_creates_new_window(mock_app, mocker):
     """Verify that a new settings window is created if one does not exist."""
     mock_app.settings_window = None
-    # Add the wait_window mock to the app instance itself
     mock_app.wait_window = MagicMock()
     mock_settings_window_class = mocker.patch("app.SettingsWindow")
-
     App.open_settings(mock_app)
-
     mock_settings_window_class.assert_called_once_with(mock_app)
     mock_app.wait_window.assert_called_once()
+
+
+def test_cleanup_old_updates(mocker):
+    """Verify that leftover .old files from previous updates are deleted."""
+    # ARRANGE
+    mock_install_dir = MagicMock()
+    mock_file1 = MagicMock(name="old_file1.exe.old")
+    mock_file2 = MagicMock(name="old_file2.dll.old")
+    mock_install_dir.glob.return_value = [mock_file1, mock_file2]
+    # FIX: Mock the .parent attribute of the Path object to return our mock dir
+    mocker.patch("app.Path").return_value.parent = mock_install_dir
+
+    # ACT
+    cleanup_old_updates()
+
+    # ASSERT
+    assert mock_file1.unlink.call_count == 1
+    assert mock_file2.unlink.call_count == 1
+
+
+def test_force_update_check_starts_thread(mock_app, mocker):
+    """Verify that force_update_check starts the update check in a thread."""
+    mock_thread_class = mocker.patch("threading.Thread")
+    mock_check_for_updates = mocker.patch("app.check_for_updates")
+    App.force_update_check(mock_app)
+    mock_app.log_message.assert_called_once_with(
+        "\n--- Manual update check initiated ---"
+    )
+    mock_thread_class.assert_called_once_with(
+        target=mock_check_for_updates, args=(mock_app,), daemon=True
+    )
+    mock_thread_class.return_value.start.assert_called_once()
