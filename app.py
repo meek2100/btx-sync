@@ -7,8 +7,6 @@ import webbrowser
 import sys
 import shutil
 import platform
-import requests
-import subprocess
 from tkinter import messagebox
 from pathlib import Path
 from PIL import Image
@@ -53,7 +51,6 @@ def check_for_updates(app_instance):
         app_instance.get_current_config().get("LOG_LEVEL", "Normal"),
     )
     logger.debug("Checking for updates...")
-
     platform_system = platform.system().lower()
     if platform_system == "windows":
         platform_suffix = "win"
@@ -61,17 +58,14 @@ def check_for_updates(app_instance):
         platform_suffix = "mac"
     else:
         platform_suffix = "linux"
-
     platform_app_name = f"{APP_NAME}-{platform_suffix}"
     logger.debug(f"Platform: {platform_system}, App Name: {platform_app_name}")
-
     app_data_dir = Path.home() / f".{APP_NAME}"
     app_data_dir.mkdir(exist_ok=True)
     metadata_dir = app_data_dir / "metadata"
     target_dir = app_data_dir / "targets"
     metadata_dir.mkdir(exist_ok=True)
     target_dir.mkdir(exist_ok=True)
-
     local_root_path = metadata_dir / "root.json"
     if not local_root_path.exists():
         try:
@@ -81,7 +75,6 @@ def check_for_updates(app_instance):
         except Exception as e:
             logger.error(f"Failed to initialize update metadata: {repr(e)}")
             return
-
     try:
         platform_update_url = f"{UPDATE_URL}{platform_suffix}/"
         client = Client(
@@ -93,17 +86,15 @@ def check_for_updates(app_instance):
             metadata_base_url=f"{platform_update_url}metadata/",
             target_base_url=f"{platform_update_url}targets/",
         )
-
         logger.debug(f"tufup.Client(current_version='{APP_VERSION}')")
         new_update = client.check_for_updates(pre="a")
-
         if new_update:
             logger.debug(f"Update {new_update.version} found.")
             app_instance.tufup_client = client
-            app_instance.show_update_notification(new_update)
+            app_instance.new_update_info = new_update
+            app_instance.show_update_notification()
         else:
             logger.debug("Application is up to date.")
-
     except Exception as e:
         logger.error(f"Update check failed: {repr(e)}")
 
@@ -122,13 +113,11 @@ def cleanup_old_updates():
 class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
-
         self.title("btx sync")
         self.geometry("800x600")
         self.iconbitmap(resource_path("assets/icon.ico"))
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
-
         self.update_frame = customtkinter.CTkFrame(self, fg_color="#2B39B2")
         self.update_label = customtkinter.CTkLabel(
             self.update_frame, text="A new version is available!"
@@ -140,15 +129,12 @@ class App(customtkinter.CTk):
         self.update_button.pack(side="right", padx=10, pady=5)
         self.new_update_info = None
         self.tufup_client = None
-
         self.control_frame = customtkinter.CTkFrame(self, height=50)
         self.control_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
-
         self.run_button = customtkinter.CTkButton(
             self.control_frame, text="Run Sync", command=self.start_sync_thread
         )
         self.run_button.pack(side="left", padx=10, pady=5)
-
         self.cancel_button = customtkinter.CTkButton(
             self.control_frame,
             text="Cancel",
@@ -157,7 +143,6 @@ class App(customtkinter.CTk):
             border_width=1,
         )
         self.cancel_event = threading.Event()
-
         self.more_icon = CTkImage(
             light_image=Image.open(resource_path("assets/dots_dark.png")),
             dark_image=Image.open(resource_path("assets/dots_light.png")),
@@ -174,23 +159,19 @@ class App(customtkinter.CTk):
             command=self.show_more_menu,
         )
         self.more_button.pack(side="right", padx=10, pady=5)
-
         self.status_label = customtkinter.CTkLabel(
             self.control_frame, text="Loading..."
         )
         self.status_label.pack(side="left", padx=10)
-
         self.log_box = customtkinter.CTkTextbox(
             self, state="disabled", font=("Courier New", 12)
         )
         self.log_box.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="nsew")
-
         self.more_menu = tkinter.Menu(self, tearoff=0)
         self.more_menu.add_command(label="Settings", command=self.open_settings)
         self.more_menu.add_command(label="Help", command=self.open_help_file)
         self.more_menu.add_separator()
         self.more_menu.add_command(label="About", command=self.open_about_window)
-
         self.right_click_menu = tkinter.Menu(
             self.log_box, tearoff=0, background="#2B2B2B", foreground="white"
         )
@@ -199,16 +180,13 @@ class App(customtkinter.CTk):
         self.right_click_menu.add_command(
             label="Select All", command=self.select_all_log_text
         )
-
         self.log_box.bind("<Button-3>", self.show_right_click_menu)
         self.settings_window = None
         self.update_readiness_status()
-
         config = self.get_current_config()
         in_prod = is_production_environment()
         prod_update_enabled = in_prod and config.get("AUTO_UPDATE_ENABLED", True)
         dev_update_enabled = not in_prod and DEV_AUTO_UPDATE_ENABLED
-
         if prod_update_enabled or dev_update_enabled:
             update_thread = threading.Thread(
                 target=check_for_updates, args=(self,), daemon=True
@@ -217,98 +195,37 @@ class App(customtkinter.CTk):
         elif not in_prod:
             self.log_message("Auto-update check disabled in development mode.")
 
-    def show_update_notification(self, new_update):
-        self.new_update_info = new_update
+    def show_update_notification(self):
+        """Displays the update notification bar."""
         self.update_frame.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="ew")
 
     def apply_update(self):
+        """Starts the update process in a separate thread."""
         if not self.new_update_info:
             return
         self.update_button.configure(state="disabled", text="Installing...")
-        self.log_message(f"Downloading update {self.new_update_info.version}...")
         update_thread = threading.Thread(target=self.threaded_apply, daemon=True)
         update_thread.start()
 
     def threaded_apply(self):
         """
-        Downloads the update, then creates and launches a platform-specific
-        installer script to complete the update and restart the application.
+        Downloads and installs the update using tufup's robust methods.
+        This replaces the previous fragile, script-based approach.
         """
-        if not self.tufup_client or not self.new_update_info:
+        if not self.new_update_info:
             self.log_message("[ERROR] Update client not initialized.")
             self.update_button.configure(state="normal", text="Install Now")
             return
-
         try:
-            archive_path = (
-                Path(self.tufup_client.target_dir) / self.new_update_info.filename
-            )
-
-            platform_system = platform.system().lower()
-            platform_suffix = (
-                "win"
-                if platform_system == "windows"
-                else "mac"
-                if platform_system == "darwin"
-                else "linux"
-            )
-            target_base_url = f"{UPDATE_URL}{platform_suffix}/targets/"
-            download_url = target_base_url + self.new_update_info.filename
-
-            with requests.get(download_url, stream=True) as r:
-                r.raise_for_status()
-                with open(archive_path, "wb") as f:
-                    shutil.copyfileobj(r.raw, f)
-            self.log_message("Download complete.")
-
-            temp_extract_dir = archive_path.parent / "temp_update"
-            if temp_extract_dir.exists():
-                shutil.rmtree(temp_extract_dir)
-            shutil.unpack_archive(archive_path, temp_extract_dir)
-
-            self.log_message("Preparing to install update...")
-
-            app_install_dir = Path(sys.executable).parent
-            app_exe_name = Path(sys.executable).name
-            source_dir = next(temp_extract_dir.iterdir())
-
-            if platform_system == "windows":
-                script_path = app_install_dir / "update_installer.bat"
-                script_content = f"""
-@echo off
-timeout /t 3 /nobreak > NUL
-xcopy "{source_dir}" "{app_install_dir}" /y /e /i /q
-cd /d "{app_install_dir}"
-start "" /b "{app_exe_name}"
-del "{archive_path}"
-rmdir /s /q "{temp_extract_dir}"
-(goto) 2>nul & del "%~f0"
-"""
-                with open(script_path, "w") as f:
-                    f.write(script_content)
-                subprocess.Popen(f'start "" /b "{script_path}"', shell=True)
-            else:
-                script_path = app_install_dir / "update_installer.sh"
-                script_content = f"""
-#!/bin/bash
-sleep 3
-cp -R "{source_dir}/." "{app_install_dir}/"
-rm -f "{archive_path}"
-rm -rf "{temp_extract_dir}"
-cd "{app_install_dir}"
-(setsid "./{app_exe_name}" &)
-rm -- "$0"
-"""
-                with open(script_path, "w", newline="\\n") as f:
-                    f.write(script_content)
-                script_path.chmod(0o755)
-                subprocess.Popen(str(script_path), shell=True)
-
-            self.log_message("Closing to complete update...")
-            self.after(200, self.destroy)
-
+            self.log_message(f"Downloading update {self.new_update_info.version}...")
+            # Use tufup's built-in secure download method
+            self.new_update_info.download()
+            self.log_message("Download complete. Preparing to install...")
+            # Use tufup's built-in installer, which handles all platform-specific
+            # complexities of replacing the app and restarting.
+            self.new_update_info.install(restart=True)
         except Exception as e:
-            self.log_message(f"[ERROR] An unexpected error occurred: {e}")
+            self.log_message(f"[ERROR] An unexpected error occurred during update: {e}")
             self.update_button.configure(state="normal", text="Install Now")
 
     def force_update_check(self):
@@ -326,7 +243,6 @@ rm -- "$0"
         config = {}
         for key in MANAGED_SETTINGS_KEYS:
             config[key.upper()] = keyring.get_password(SERVICE_NAME, key)
-
         if not config.get(KEY_BACKUP_PATH.upper()):
             config[KEY_BACKUP_PATH.upper()] = str(
                 Path.home() / DEFAULT_BACKUP_PATH_NAME
@@ -337,7 +253,6 @@ rm -- "$0"
             config[KEY_BACKUP_ENABLED.upper()] = str(int(DEFAULT_BACKUP_ENABLED))
         if config.get(KEY_AUTO_UPDATE.upper()) is None:
             config[KEY_AUTO_UPDATE.upper()] = str(int(DEFAULT_AUTO_UPDATE_ENABLED))
-
         config["BACKUP_ENABLED"] = config[KEY_BACKUP_ENABLED.upper()] == "1"
         config["AUTO_UPDATE_ENABLED"] = config[KEY_AUTO_UPDATE.upper()] == "1"
         return config

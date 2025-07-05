@@ -20,38 +20,43 @@ def mock_app_instance(mocker):
     Mocks the main App class to isolate the `check_for_updates` logic.
     """
     app_instance = MagicMock(spec=App)
-    # --- THIS IS THE FIX ---
-    # Set the log level to 'Debug' for testing, so debug messages are generated.
     app_instance.get_current_config.return_value = {"LOG_LEVEL": "Debug"}
     return app_instance
 
 
 def test_update_found_and_notification_shown(mock_tufup_client, mock_app_instance):
     """
-    Verify that if an update is found, the app's notification method is called.
+    Verify that if an update is found, the app's notification method is called
+    and the update info is stored correctly.
     """
+    # ARRANGE
     mock_update = MagicMock(version="2.0.0")
     mock_tufup_client.check_for_updates.return_value = mock_update
 
+    # ACT
     check_for_updates(mock_app_instance)
 
+    # ASSERT
     # Verify that the debug log message was sent
     mock_app_instance.log_message.assert_any_call("[DEBUG] Update 2.0.0 found.")
 
-    # Verify that the notification method was called with the update info
-    mock_app_instance.show_update_notification.assert_called_once_with(mock_update)
+    # FIX: Assert that the method is called with NO arguments
+    mock_app_instance.show_update_notification.assert_called_once_with()
+
+    # Add a new assertion to ensure the update info was stored on the instance
+    assert mock_app_instance.new_update_info == mock_update
 
 
 def test_no_update_found(mock_tufup_client, mock_app_instance):
     """Verify correct behavior when no update is found."""
+    # ARRANGE
     mock_tufup_client.check_for_updates.return_value = None
 
+    # ACT
     check_for_updates(mock_app_instance)
 
-    # Check that the debug log contains the "up to date" message
+    # ASSERT
     mock_app_instance.log_message.assert_any_call("[DEBUG] Application is up to date.")
-
-    # Ensure the notification method was NOT called
     mock_app_instance.show_update_notification.assert_not_called()
 
 
@@ -61,5 +66,8 @@ def test_check_for_updates_uses_prerelease_channel(
     """
     Verify that the check_for_updates function enables the pre-release channel.
     """
+    # ACT
     check_for_updates(mock_app_instance)
+
+    # ASSERT
     mock_tufup_client.check_for_updates.assert_called_once_with(pre="a")

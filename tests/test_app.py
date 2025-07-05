@@ -23,6 +23,9 @@ def mock_app(mocker):
     app_instance.update_status_label = MagicMock()
     app_instance._update_status_label_gui = MagicMock()
     app_instance.force_update_check = MagicMock()
+    # Add mocks for update-related attributes
+    app_instance.new_update_info = MagicMock()
+    app_instance.update_button = MagicMock()
     return app_instance
 
 
@@ -116,18 +119,12 @@ def test_open_settings_creates_new_window(mock_app, mocker):
 
 def test_cleanup_old_updates(mocker):
     """Verify that leftover .old files from previous updates are deleted."""
-    # ARRANGE
     mock_install_dir = MagicMock()
     mock_file1 = MagicMock(name="old_file1.exe.old")
     mock_file2 = MagicMock(name="old_file2.dll.old")
     mock_install_dir.glob.return_value = [mock_file1, mock_file2]
-    # FIX: Mock the .parent attribute of the Path object to return our mock dir
     mocker.patch("app.Path").return_value.parent = mock_install_dir
-
-    # ACT
     cleanup_old_updates()
-
-    # ASSERT
     assert mock_file1.unlink.call_count == 1
     assert mock_file2.unlink.call_count == 1
 
@@ -144,3 +141,29 @@ def test_force_update_check_starts_thread(mock_app, mocker):
         target=mock_check_for_updates, args=(mock_app,), daemon=True
     )
     mock_thread_class.return_value.start.assert_called_once()
+
+
+def test_threaded_apply_success(mock_app):
+    """Verify the update process calls tufup download and install."""
+    App.threaded_apply(mock_app)
+    mock_app.new_update_info.download.assert_called_once()
+    mock_app.new_update_info.install.assert_called_once_with(restart=True)
+    mock_app.log_message.assert_any_call("Download complete. Preparing to install...")
+
+
+def test_threaded_apply_failure(mock_app):
+    """Verify UI is reset correctly if the update download fails."""
+    # ARRANGE
+    error_message = "Download failed"
+    mock_app.new_update_info.download.side_effect = Exception(error_message)
+
+    # ACT
+    App.threaded_apply(mock_app)
+
+    # ASSERT
+    log_call = f"[ERROR] An unexpected error occurred during update: {error_message}"
+    mock_app.log_message.assert_any_call(log_call)
+    mock_app.update_button.configure.assert_called_with(
+        state="normal", text="Install Now"
+    )
+    mock_app.new_update_info.install.assert_not_called()
