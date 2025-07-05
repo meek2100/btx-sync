@@ -16,6 +16,10 @@ def mock_settings_window(mocker):
     settings_window.advanced_checkbox = MagicMock()
     settings_window.advanced_frame = MagicMock()
     settings_window.geometry = MagicMock()
+    # Add mocks for UI entry fields and connection test logic
+    settings_window.braze_api_key_entry = MagicMock()
+    settings_window.braze_endpoint_entry = MagicMock()
+    settings_window._test_braze_connection = MagicMock()
     return settings_window
 
 
@@ -39,18 +43,12 @@ def test_braze_connection_handles_network_error(mocker):
     """
     Verify the Braze connection test reports failure on a network error.
     """
-    # ARRANGE
     mocker.patch(
         "requests.Session.get", side_effect=requests.exceptions.RequestException
     )
-    # FIX: Prevent the GUI from initializing, just like in the other test.
     mocker.patch.object(SettingsWindow, "__init__", lambda s, *a, **kw: None)
     container = SettingsWindow(None)
-
-    # ACT
     status, msg = container._test_braze_connection("key", "endpoint")
-
-    # ASSERT
     assert status == "FAILED"
     assert "Could not connect to Braze" in msg
 
@@ -59,17 +57,36 @@ def test_open_help_file_handles_error(mocker):
     """
     Verify that if opening the help file fails, an error message is shown.
     """
-    # ARRANGE
     mocker.patch("app.resource_path", return_value="dummy/path/README.md")
     mocker.patch("app.webbrowser.open", side_effect=Exception("File not found"))
     mock_showerror = mocker.patch("app.messagebox.showerror")
-    # FIX: Prevent the App's __init__ method from running to avoid the TclError.
     mocker.patch.object(App, "__init__", lambda s: None)
     app_instance = App()
-
-    # ACT
     app_instance.open_help_file()
-
-    # ASSERT
     mock_showerror.assert_called_once()
     assert "Could not open help file" in mock_showerror.call_args[0][1]
+
+
+def test_test_connection_from_ui_wrapper(mock_settings_window, mocker):
+    """
+    Verify the UI wrapper for connection tests correctly uses UI values
+    and shows the result in a messagebox.
+    """
+    # ARRANGE
+    mock_showinfo = mocker.patch("tkinter.messagebox.showinfo")
+    # Simulate values entered by the user in the GUI
+    mock_settings_window.braze_api_key_entry.get.return_value = "ui_key"
+    mock_settings_window.braze_endpoint_entry.get.return_value = "ui_endpoint"
+    # Simulate a successful connection result from the underlying logic
+    mock_settings_window._test_braze_connection.return_value = ("SUCCESS", "Connected")
+
+    # ACT
+    mock_settings_window._test_braze_connection_from_ui()
+
+    # ASSERT
+    # Verify the logic was called with values from the UI entries
+    mock_settings_window._test_braze_connection.assert_called_once_with(
+        "ui_key", "ui_endpoint"
+    )
+    # Verify the result was shown to the user
+    mock_showinfo.assert_called_once_with("Braze Connection Test", "SUCCESS: Connected")

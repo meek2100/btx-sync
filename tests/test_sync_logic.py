@@ -54,7 +54,6 @@ def mock_session(mocker):
 def test_fetch_braze_list_pagination(mock_session, mock_config):
     """Verify that the fetch_braze_list function correctly handles pagination."""
     mock_config["BACKUP_ENABLED"] = False
-    # Mocking 100 templates for page 1, and 50 for page 2
     page1_templates = [
         {"email_template_id": f"id1_{i}", "template_name": f"t1_{i}"}
         for i in range(100)
@@ -62,40 +61,27 @@ def test_fetch_braze_list_pagination(mock_session, mock_config):
     page2_templates = [
         {"email_template_id": f"id2_{i}", "template_name": f"t2_{i}"} for i in range(50)
     ]
-    page1 = {"templates": page1_templates}
-    page2 = {"templates": page2_templates}
-
     mock_responses = [
-        # 1. Pagination calls for templates
-        MagicMock(status_code=200, json=lambda: page1),
-        MagicMock(status_code=200, json=lambda: page2),
+        MagicMock(status_code=200, json=lambda: {"templates": page1_templates}),
+        MagicMock(status_code=200, json=lambda: {"templates": page2_templates}),
     ]
-    # Add mocks for all detail and Transifex calls
-    for _ in range(150):  # 100 on page 1, 50 on page 2
+    for _ in range(150):
         mock_responses.extend(
             [
-                MagicMock(status_code=200, json=lambda: {"subject": "Test"}),  # details
-                MagicMock(status_code=404),  # tx resource get
+                MagicMock(status_code=200, json=lambda: {"subject": "Test"}),
+                MagicMock(status_code=404),
             ]
         )
-    # Add mock for content block list call
     mock_responses.append(
         MagicMock(status_code=200, json=lambda: {"content_blocks": []})
     )
     mock_session.get.side_effect = mock_responses
     mock_session.post.return_value = MagicMock(status_code=201)
-
     sync_logic.sync_logic_main(
         mock_config, no_op_callback, threading.Event(), mock_progress_callback
     )
-
-    # FIX: Update expected calls to match the correct application logic.
-    # The first call should NOT have an offset parameter.
     expected_calls = [
-        call(
-            "https://rest.mock.braze.com/templates/email/list?limit=100",
-            timeout=30,
-        ),
+        call("https://rest.mock.braze.com/templates/email/list?limit=100", timeout=30),
         call(
             "https://rest.mock.braze.com/templates/email/list?limit=100&offset=100",
             timeout=30,
@@ -167,31 +153,43 @@ def test_resource_name_no_update_needed(mock_session, mock_config):
     """Verify a resource name is NOT updated if it already matches."""
     mock_config["BACKUP_ENABLED"] = False
     templates = [{"email_template_id": "e123", "template_name": "Matching"}]
-
-    # FIX: Provide a complete set of mocks for the entire process
     mock_session.get.side_effect = [
-        # 1. Fetch template list
         MagicMock(status_code=200, json=lambda: {"templates": templates}),
-        # 2. Fetch template details
         MagicMock(status_code=200, json=lambda: {"subject": "Test"}),
-        # 3. Get Transifex resource (found, and name matches)
         MagicMock(
             status_code=200,
             json=lambda: {"data": {"attributes": {"name": "Matching"}}},
         ),
-        # 4. Fetch content block list
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
     ]
-
-    # Mock the POST call for uploading source content
     mock_session.post.return_value = MagicMock(status_code=202)
-
     sync_logic.sync_logic_main(
         mock_config, no_op_callback, threading.Event(), mock_progress_callback
     )
-
-    # The assertion remains the same: patch should not be called
     mock_session.patch.assert_not_called()
+
+
+def test_resource_name_is_updated_when_mismatched(mock_session, mock_config):
+    """Verify a resource name IS updated if it does not match."""
+    mock_config["BACKUP_ENABLED"] = False
+    templates = [{"email_template_id": "e123", "template_name": "New Name"}]
+    mock_session.get.side_effect = [
+        MagicMock(status_code=200, json=lambda: {"templates": templates}),
+        MagicMock(status_code=200, json=lambda: {"subject": "Test"}),
+        MagicMock(
+            status_code=200,
+            json=lambda: {"data": {"attributes": {"name": "Old Name"}}},
+        ),
+        MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
+    ]
+    mock_session.post.return_value = MagicMock(status_code=202)
+    mock_session.patch.return_value = MagicMock(status_code=200)
+    sync_logic.sync_logic_main(
+        mock_config, no_op_callback, threading.Event(), mock_progress_callback
+    )
+    mock_session.patch.assert_called_once()
+    patch_payload = json.loads(mock_session.patch.call_args.kwargs["data"])
+    assert patch_payload["data"]["attributes"]["name"] == "New Name"
 
 
 def test_perform_tmx_backup_success(mocker, mock_config):
@@ -200,18 +198,13 @@ def test_perform_tmx_backup_success(mocker, mock_config):
     mock_tmx_session.post.return_value = MagicMock(
         status_code=200, json=lambda: {"data": {"id": "job1"}}
     )
-    # This mock will represent the final response which is the file itself.
-    # Set headers to simulate a TMX file download.
     mock_file_response = MagicMock(
         status_code=200,
         content=b"<tmx></tmx>",
         headers={"Content-Type": "text/xml"},
     )
-    # Ensure .json() is not called on this response by default,
-    # as we expect file content.
     mock_file_response.json.side_effect = json.JSONDecodeError("Not JSON", "{}", 0)
     mock_tmx_session.get.return_value = mock_file_response
-
     mocker.patch("builtins.open", mocker.mock_open())
     mocker.patch("pathlib.Path.mkdir")
     logger = AppLogger(no_op_callback)
@@ -275,7 +268,6 @@ def test_perform_tmx_backup_timeout(mocker, mock_config):
         headers={"Content-Type": "application/vnd.api+json"},
         json=lambda: {"data": {"attributes": {"status": "pending"}}},
     )
-    # Make time.time jump forward past the timeout
     mocker.patch("time.time", side_effect=[100, 501])
     logger = AppLogger(no_op_callback)
     result = sync_logic.perform_tmx_backup(
@@ -298,11 +290,9 @@ def test_upload_source_content_success(mock_session, mock_config):
         MagicMock(status_code=201),
         MagicMock(status_code=202),
     ]
-
     sync_logic.sync_logic_main(
         mock_config, no_op_callback, threading.Event(), mock_progress_callback
     )
-
     assert mock_session.post.call_count == 2
     upload_call = mock_session.post.call_args_list[1]
     upload_payload = json.loads(upload_call.kwargs["data"])
@@ -317,24 +307,16 @@ def test_sync_cancels_during_long_process(mock_session, mock_config, mocker):
     templates = [
         {"email_template_id": f"id_{i}", "template_name": f"t_{i}"} for i in range(10)
     ]
-
-    # Arrange: Mock the POST call to start the backup job
     mock_session.post.return_value = MagicMock(
         status_code=200, json=lambda: {"data": {"id": "job1"}}
     )
-
-    # Arrange: Mock the separate GET call that downloads the TMX file
     mocker.patch("requests.get").return_value = MagicMock(
         status_code=200, content=b"<tmx></tmx>"
     )
-
-    # Arrange: This smart side_effect function will handle all GET calls
-    # made through the main session object.
     call_count = 0
 
     def session_get_router(url, **kwargs):
         nonlocal call_count
-        # 1. TMX backup status check
         if "tmx_async_downloads" in url:
             return MagicMock(
                 status_code=200,
@@ -346,32 +328,22 @@ def test_sync_cancels_during_long_process(mock_session, mock_config, mocker):
                     }
                 },
             )
-        # 2. Braze template list
         elif "/templates/email/list" in url:
             return MagicMock(status_code=200, json=lambda: {"templates": templates})
-        # 3. Transifex resource check
         elif "transifex.com/resources" in url:
-            # The simplest successful path is for the resource not to exist
             return MagicMock(status_code=404)
-        # 4. Braze item details check
         elif "/templates/email/info" in url:
             call_count += 1
             if call_count > 5:
                 cancel_event.set()
             return MagicMock(status_code=200, json=lambda: {"subject": "Test"})
-        # Fallback for any other unexpected GET
         else:
             return MagicMock(status_code=404)
 
     mock_session.get.side_effect = session_get_router
-
     logged_messages = []
-
-    # Act
     sync_logic.sync_logic_main(
         mock_config, logged_messages.append, cancel_event, mock_progress_callback
     )
-
-    # Assert
     full_log = "".join(logged_messages)
     assert "Sync process was cancelled by the user" in full_log
