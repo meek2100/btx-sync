@@ -3,7 +3,6 @@ import customtkinter
 import keyring
 import threading
 import tkinter
-import webbrowser
 import sys
 import shutil
 import platform
@@ -28,6 +27,7 @@ from constants import (
 )
 from config import SERVICE_NAME
 from gui_settings import SettingsWindow
+from gui_help import HelpWindow
 from sync_logic import sync_logic_main
 from utils import resource_path, is_production_environment
 from logger import AppLogger
@@ -209,7 +209,10 @@ class App(customtkinter.CTk):
             label="Select All", command=self.select_all_log_text
         )
         self.log_box.bind("<Button-3>", self.show_right_click_menu)
+
         self.settings_window = None
+        self.help_window = None
+
         self.update_readiness_status()
         # --- Automatic Update Check on Startup ---
         config = self.get_current_config()
@@ -320,12 +323,15 @@ class App(customtkinter.CTk):
         )
 
     def open_help_file(self) -> None:
-        """Opens the local README.md file in the default web browser."""
-        try:
-            readme_path = resource_path("README.md")
-            webbrowser.open(f"file://{readme_path}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not open help file.\n\n{e}")
+        """
+        Opens the in-app help window. If a window already exists, it focuses
+        it; otherwise, it creates a new one.
+        """
+        if self.help_window is None or not self.help_window.winfo_exists():
+            self.help_window = HelpWindow(self)
+            self.help_window.grab_set()
+        else:
+            self.help_window.focus()
 
     def show_right_click_menu(self, event) -> None:
         """Displays the right-click context menu in the log box."""
