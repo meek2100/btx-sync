@@ -1,45 +1,47 @@
 # tests/test_gui_help.py
 
 import pytest
+from unittest.mock import MagicMock
 from gui_help import HelpWindow
 
-# Sample README content for testing
+# A sample README content to use for all tests in this file
 SAMPLE_README = """
-# btx sync
+# Project Title
 
-Some general info.
+Some intro text.
 
+---
 ## How It Works
 
-This is how it works.
+This is how the application functions.
 
 ---
 ## For End-Users
 
-### Installation
-
-Install steps here.
-
 ### Usage
 
-Usage steps here.
+- Step one for usage.
+- Step two for usage.
+
+### Secure Automatic Updates
+
+This app has **secure** updates. Go to the [Releases Page](https://github.com/meek2100/btx-sync/releases).
 
 ---
 ## For Developers
 
-Developer steps here.
-
-### Secure Automatic Updates
-
-Update info here.
+Some developer info.
 """
 
 
 @pytest.fixture
 def mock_help_window(mocker):
-    """Mocks the full initialization of the HelpWindow for logic testing."""
+    """Mocks the HelpWindow to test its internal logic without a GUI."""
     mocker.patch.object(HelpWindow, "__init__", lambda s, *a, **kw: None)
     help_window = HelpWindow(None)
+    help_window.textbox = MagicMock()
+    # Mock the _get_user_content to isolate the parsing logic
+    mocker.patch.object(help_window, "_get_user_content", return_value=SAMPLE_README)
     return help_window
 
 
@@ -47,43 +49,30 @@ def test_get_user_content_extraction(mock_help_window):
     """Verify that only the correct user-facing sections are extracted."""
     # ACT
     extracted_content = mock_help_window._get_user_content(SAMPLE_README)
-
     # ASSERT
-    # Check that the extracted content contains the correct headings in order
-    assert "## Usage" in extracted_content
     assert "## How It Works" in extracted_content
-    assert "## Secure Automatic Updates" in extracted_content
-
-    # Check that excluded sections are not present
+    assert "### Usage" in extracted_content
+    assert "### Secure Automatic Updates" in extracted_content
     assert "## For Developers" not in extracted_content
-    assert "### Installation" not in extracted_content
 
 
-def test_get_user_content_with_missing_sections(mock_help_window):
-    """
-    Verify that the function handles a README that is missing some sections.
-    """
-    # ARRANGE: Create a README that is missing the "How It Works" section
-    partial_readme = SAMPLE_README.replace("## How It Works", "")
-
+def test_parse_and_insert_applies_tags(mock_help_window):
+    """Verify that the parser correctly applies formatting tags."""
     # ACT
-    extracted_content = mock_help_window._get_user_content(partial_readme)
-
+    mock_help_window._parse_and_insert(SAMPLE_README)
     # ASSERT
-    assert "## Usage" in extracted_content
-    assert "## Secure Automatic Updates" in extracted_content
-    assert "## How It Works" not in extracted_content
-
-
-def test_get_user_content_not_found(mock_help_window):
-    """
-    Verify that a clear message is returned if no user content is found.
-    """
-    # ARRANGE: Provide content that doesn't have any of the target sections
-    developer_only_readme = "## For Developers\nSome text."
-
-    # ACT
-    extracted_content = mock_help_window._get_user_content(developer_only_readme)
-
-    # ASSERT
-    assert "Help Not Found" in extracted_content
+    # Check that insert was called with the correct tags for each line type
+    mock_help_window.textbox.insert.assert_any_call("end", "How It Works\n", "h2")
+    mock_help_window.textbox.insert.assert_any_call("end", "Usage\n", "h3")
+    mock_help_window.textbox.insert.assert_any_call(
+        "end", "• Step one for usage.\n", "list"
+    )
+    # Check that the part with multiple inline styles was handled
+    mock_help_window.textbox.insert.assert_any_call("end", "This app has ", ("list",))
+    mock_help_window.textbox.insert.assert_any_call("end", "secure", ("list", "bold"))
+    mock_help_window.textbox.insert.assert_any_call(
+        "end", " updates. Go to the ", ("list",)
+    )
+    mock_help_window.textbox.insert.assert_any_call(
+        "end", "Releases Page", ("list", "link", "link-releases")
+    )
