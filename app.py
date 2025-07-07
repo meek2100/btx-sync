@@ -30,7 +30,7 @@ from constants import (
 from config import SERVICE_NAME
 from gui_settings import SettingsWindow
 from gui_help import HelpWindow
-from sync_logic import sync_logic_main
+from sync_logic import sync_logic_main, SyncState, STATE_FILE_PATH
 from utils import resource_path, is_production_environment
 from logger import AppLogger
 
@@ -40,9 +40,7 @@ except ImportError:
     APP_VERSION = "0.0.0-dev"
 
 APP_NAME = "btx-sync"
-UPDATE_URL = (
-    "[https://meek2100.github.io/btx-sync/](https://meek2100.github.io/btx-sync/)"
-)
+UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
 
 def check_for_updates(app_instance: "App") -> None:
@@ -316,7 +314,7 @@ class App(customtkinter.CTk):
         self.cancel_button.configure(state="disabled")
         self.cancel_event.set()
 
-    def sync_thread_target(self):
+    def sync_thread_target(self, resume: bool = False):
         self.progress_bar.pack(side="left", padx=(10, 5), fill="x", expand=True)
         self.progress_bar.set(0)
         self.run_button.pack_forget()
@@ -339,6 +337,7 @@ class App(customtkinter.CTk):
                     self.log_message,
                     self.cancel_event,
                     self.update_progress,
+                    resume=resume,
                 )
             else:
                 self.log_message("--- CONFIGURATION ERROR ---")
@@ -354,7 +353,27 @@ class App(customtkinter.CTk):
 
     def start_sync_thread(self):
         self.cancel_event.clear()
-        thread = threading.Thread(target=self.sync_thread_target, daemon=True)
+        resume = False
+        if STATE_FILE_PATH.exists():
+            answer = messagebox.askyesnocancel(
+                "Resume Sync?",
+                "An incomplete sync session was found. "
+                "Do you want to resume where you left off?\n\n"
+                "• Yes: Resume the sync.\n"
+                "• No: Start a new sync and delete the old session.\n"
+                "• Cancel: Do nothing.",
+                icon=messagebox.QUESTION,
+            )
+            if answer is None:  # Cancel
+                return
+            if answer:  # Yes
+                resume = True
+            else:  # No
+                SyncState.clear()
+
+        thread = threading.Thread(
+            target=self.sync_thread_target, kwargs={"resume": resume}, daemon=True
+        )
         thread.start()
 
     def open_settings(self):

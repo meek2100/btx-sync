@@ -21,6 +21,42 @@ from constants import (
     TRANSIFEX_TMX_ASYNC_DOWNLOADS_ENDPOINT,
 )
 
+STATE_FILE_PATH = Path.home() / ".btx-sync" / "sync_state.json"
+
+
+class SyncState:
+    """Manages the state of the sync process for resumability."""
+
+    @staticmethod
+    def load() -> Dict[str, List[str]]:
+        """Loads the sync state from the state file."""
+        if not STATE_FILE_PATH.exists():
+            return {"templates": [], "blocks": []}
+        with open(STATE_FILE_PATH, "r") as f:
+            return json.load(f)
+
+    @staticmethod
+    def save(templates: List[str], blocks: List[str]) -> None:
+        """Saves the given lists of item IDs to the state file."""
+        STATE_FILE_PATH.parent.mkdir(exist_ok=True)
+        with open(STATE_FILE_PATH, "w") as f:
+            json.dump({"templates": templates, "blocks": blocks}, f)
+
+    @staticmethod
+    def remove_item(item_type: str, item_id: str) -> None:
+        """Removes a successfully processed item from the state file."""
+        if STATE_FILE_PATH.exists():
+            state = SyncState.load()
+            if item_id in state.get(item_type, []):
+                state[item_type].remove(item_id)
+                SyncState.save(state["templates"], state["blocks"])
+
+    @staticmethod
+    def clear() -> None:
+        """Removes the state file."""
+        if STATE_FILE_PATH.exists():
+            STATE_FILE_PATH.unlink()
+
 
 class CancellationError(Exception):
     """Custom exception to signal a user-initiated cancellation."""
@@ -57,8 +93,8 @@ class BrazeClient:
                     time.sleep(wait_time)
                     continue
                 raise
-            except requests.exceptions.RequestException as e:
-                self.logger.error(f"A network error occurred: {e}")
+            except requests.exceptions.RequestException:
+                self.logger.error("A network error occurred.")
                 raise
 
     def get_paginated_list(self, endpoint: str, list_key: str) -> list[dict[str, Any]]:
@@ -353,6 +389,7 @@ def _process_email_templates(
         tx.upload_source_content(content, resource_slug=template_id)
         processed_items += 1
         progress_callback(processed_items, total_items)
+        SyncState.remove_item("templates", template_id)
     return processed_items
 
 
@@ -386,6 +423,7 @@ def _process_content_blocks(
         tx.upload_source_content(content, resource_slug=block_id)
         processed_items += 1
         progress_callback(processed_items, total_items)
+        SyncState.remove_item("blocks", block_id)
     return processed_items
 
 
@@ -394,6 +432,7 @@ def sync_logic_main(
     log_callback: Callable[[str], None],
     cancel_event: threading.Event,
     progress_callback: Callable[[int, int], None],
+    resume: bool = False,
 ) -> None:
     logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
     logger.info("--- Starting Braze to Transifex Sync ---")
@@ -414,26 +453,52 @@ def sync_logic_main(
         )
 
         check_for_cancel()
-        if config.get("BACKUP_ENABLED", False):
-            if not perform_tmx_backup(config, tx.session, logger, cancel_event):
-                logger.info("\n--- Sync halted due to backup failure. ---")
-                return
-            logger.info("--- TMX Backup complete. Proceeding with sync. ---\n")
+
+        if resume:
+            logger.info("\n--- Resuming previous sync session. ---")
+            state = SyncState.load()
+            all_templates = state.get("templates", [])
+            all_blocks = state.get("blocks", [])
+            templates_to_process = [
+                {"email_template_id": tid, "template_name": "Unknown (resumed)"}
+                for tid in all_templates
+            ]
+            blocks_to_process = [
+                {"content_block_id": bid, "name": "Unknown (resumed)"}
+                for bid in all_blocks
+            ]
         else:
-            logger.info("TMX backup is disabled. Skipping.")
+            if config.get("BACKUP_ENABLED", False):
+                if not perform_tmx_backup(config, tx.session, logger, cancel_event):
+                    logger.info("\n--- Sync halted due to backup failure. ---")
+                    return
+                logger.info("--- TMX Backup complete. Proceeding with sync. ---\n")
+            else:
+                logger.info("TMX backup is disabled. Skipping.")
 
-        check_for_cancel()
-        logger.info("Fetching item lists from Braze...")
-        templates = braze.get_paginated_list(
-            BRAZE_EMAIL_TEMPLATES_LIST_ENDPOINT, "templates"
-        )
-        check_for_cancel()
-        blocks = braze.get_paginated_list(
-            BRAZE_CONTENT_BLOCKS_LIST_ENDPOINT, "content_blocks"
-        )
-        check_for_cancel()
+            check_for_cancel()
+            logger.info("Fetching item lists from Braze...")
+            templates_to_process = braze.get_paginated_list(
+                BRAZE_EMAIL_TEMPLATES_LIST_ENDPOINT, "templates"
+            )
+            check_for_cancel()
+            blocks_to_process = braze.get_paginated_list(
+                BRAZE_CONTENT_BLOCKS_LIST_ENDPOINT, "content_blocks"
+            )
+            # Save initial state
+            template_ids = [
+                t["email_template_id"]
+                for t in templates_to_process
+                if "email_template_id" in t
+            ]
+            block_ids = [
+                b["content_block_id"]
+                for b in blocks_to_process
+                if "content_block_id" in b
+            ]
+            SyncState.save(template_ids, block_ids)
 
-        total_items = len(templates) + len(blocks)
+        total_items = len(templates_to_process) + len(blocks_to_process)
         processed_items = 0
         progress_callback(processed_items, total_items)
 
@@ -441,7 +506,7 @@ def sync_logic_main(
         processed_items = _process_email_templates(
             braze,
             tx,
-            templates,
+            templates_to_process,
             check_for_cancel,
             progress_callback,
             total_items,
@@ -452,7 +517,7 @@ def sync_logic_main(
         _process_content_blocks(
             braze,
             tx,
-            blocks,
+            blocks_to_process,
             check_for_cancel,
             progress_callback,
             total_items,
@@ -460,9 +525,11 @@ def sync_logic_main(
         )
 
         logger.info("\n--- Sync Complete! ---")
+        SyncState.clear()
 
     except CancellationError as e:
         logger.info(f"\n--- {e} ---")
+        logger.info("Sync state has been saved. You can resume this session later.")
     except requests.exceptions.HTTPError as e:
         logger.fatal("An API error occurred.")
         if e.request and e.response is not None:
@@ -475,7 +542,9 @@ def sync_logic_main(
                 logger.error(f"Details: {json.dumps(error_details, indent=2)}")
             except json.JSONDecodeError:
                 logger.error(f"Response Content: {e.response.text}")
+        SyncState.clear()  # Clear state on hard failure
     except requests.exceptions.RequestException as e:
         logger.fatal(f"A network error occurred: {e}")
     except Exception as e:
         logger.fatal(f"An unexpected error occurred: {e}")
+        SyncState.clear()  # Clear state on hard failure

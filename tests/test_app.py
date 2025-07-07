@@ -11,6 +11,8 @@ from app import App, cleanup_old_updates
 def mock_app(mocker):
     """Creates a mock instance of the App class for testing."""
     mocker.patch.object(App, "__init__", lambda s: None)
+    # Mock the messagebox to avoid GUI pop-ups during tests
+    mocker.patch("app.messagebox.askyesnocancel", return_value=False)
     app_instance = App()
     app_instance.cancel_event = MagicMock()
     app_instance.cancel_button = MagicMock()
@@ -26,7 +28,6 @@ def mock_app(mocker):
     app_instance.new_update_info = MagicMock()
     app_instance.update_button = MagicMock()
     app_instance.clipboard_append = MagicMock()
-    # FIX: Add a mock for the new progress_bar attribute.
     app_instance.progress_bar = MagicMock()
     return app_instance
 
@@ -68,9 +69,12 @@ def test_start_sync_thread_starts_thread(mock_app, mocker):
     """Verify that start_sync_thread creates and starts a new thread."""
     mock_thread_class = mocker.patch("threading.Thread")
     mock_app.sync_thread_target = MagicMock()
+    # Correctly mock the path object itself
+    mock_path = mocker.patch("app.STATE_FILE_PATH")
+    mock_path.exists.return_value = False
     App.start_sync_thread(mock_app)
     mock_thread_class.assert_called_once_with(
-        target=mock_app.sync_thread_target, daemon=True
+        target=mock_app.sync_thread_target, kwargs={"resume": False}, daemon=True
     )
     mock_thread_class.return_value.start.assert_called_once()
 
@@ -80,7 +84,7 @@ def test_sync_thread_target_ui_updates(mock_app, mocker):
     valid_config = {"BRAZE_API_KEY": "key", "TRANSIFEX_API_TOKEN": "token"}
     mock_app.get_current_config.return_value = valid_config
     mock_sync_logic = mocker.patch("app.sync_logic_main")
-    App.sync_thread_target(mock_app)
+    App.sync_thread_target(mock_app, resume=False)
     mock_app.run_button.pack_forget.assert_called_once()
     mock_app.cancel_button.pack.assert_called_once()
     mock_sync_logic.assert_called_once_with(
@@ -88,6 +92,7 @@ def test_sync_thread_target_ui_updates(mock_app, mocker):
         mock_app.log_message,
         mock_app.cancel_event,
         mock_app.update_progress,
+        resume=False,
     )
 
 
@@ -96,7 +101,7 @@ def test_sync_thread_target_handles_no_config(mock_app, mocker):
     invalid_config = {"BRAZE_API_KEY": "", "TRANSIFEX_API_TOKEN": ""}
     mock_app.get_current_config.return_value = invalid_config
     mock_sync_logic = mocker.patch("app.sync_logic_main")
-    App.sync_thread_target(mock_app)
+    App.sync_thread_target(mock_app, resume=False)
     mock_sync_logic.assert_not_called()
     mock_app.log_message.assert_any_call("--- CONFIGURATION ERROR ---")
 
