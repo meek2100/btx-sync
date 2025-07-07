@@ -34,16 +34,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt && pip install pyinstaller
       - name: Build the application
-        run: >
-          pyinstaller --noconfirm --onefile --windowed
-          --name "btx-sync"
-          --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}"
-          --add-data "assets${{ env.pathsep }}assets"
-          --add-data "README.md${{ env.pathsep }}."
-          --add-data "repository/metadata/root.json${{ env.pathsep }}repository/metadata"
-          app.py
         env:
           pathsep: "${{ runner.os == 'Windows' && ';' || ':' }}"
+        run: |
+          pyinstaller --noconfirm --onefile --windowed \
+            --name "btx-sync" \
+            --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" \
+            --add-data "assets${{ env.pathsep }}assets" \
+            --add-data "README.md${{ env.pathsep }}." \
+            --add-data "repository/metadata/root.json${{ env.pathsep }}repository/metadata" \
+            app.py
       - name: Package macOS App
         if: runner.os == 'macOS'
         run: (cd dist && zip -r btx-sync-macOS.zip btx-sync.app)
@@ -93,7 +93,6 @@ jobs:
           echo "$TUF_TIMESTAMP_KEY" > keystore/timestamp
 
           APP_VERSION="${{ needs.build.outputs.app_version }}"
-          # **CRUCIAL FIX**: Match these names to the runner.os values from the build job
           PLATFORMS="win:Windows mac:macOS linux:Linux"
 
           for platform_info in $PLATFORMS; do
@@ -104,29 +103,22 @@ jobs:
             mkdir -p temp_workspace
             cd temp_workspace
 
-            # 1. Create repository structure and copy keystore
             mkdir -p repository/metadata repository/targets
             cp -r ../keystore ./
 
-            # 2. Copy and update the tufup config file for the platform
             jq --arg name "btx-sync-$p_suffix" '.app_name = $name' ../.tufup-repo-config > ./.tufup-repo-config
 
-            # 3. Copy ALL existing metadata from the project's repository
             cp -a ../repository/metadata/. ./repository/metadata/
 
-            # 4. Add the new application bundle to the repository
             tufup targets add "$APP_VERSION" "../artifacts/btx-sync-$p_os" keystore
             
-            # 5. Sign all roles to commit the new target
             for role in root targets snapshot timestamp; do
               tufup sign "$role" keystore
             done
 
-            # 6. Copy the completed repository to the final deployment directory
             mkdir -p ../deploy_repo/$p_suffix
             cp -a ./repository/. ../deploy_repo/$p_suffix/
             
-            # Return to the project root for the next loop
             cd ..
           done
       
