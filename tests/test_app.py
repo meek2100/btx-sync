@@ -22,12 +22,12 @@ def mock_app(mocker):
     app_instance.update_readiness_status = MagicMock()
     app_instance.settings_window = None
     app_instance.update_status_label = MagicMock()
-    app_instance._update_status_label_gui = MagicMock()
-    app_instance.force_update_check = MagicMock()
+    app_instance.update_progress = MagicMock()
     app_instance.new_update_info = MagicMock()
     app_instance.update_button = MagicMock()
-    # Add mock for clipboard append for context menu tests
     app_instance.clipboard_append = MagicMock()
+    # FIX: Add a mock for the new progress_bar attribute.
+    app_instance.progress_bar = MagicMock()
     return app_instance
 
 
@@ -87,7 +87,7 @@ def test_sync_thread_target_ui_updates(mock_app, mocker):
         valid_config,
         mock_app.log_message,
         mock_app.cancel_event,
-        mock_app.update_status_label,
+        mock_app.update_progress,
     )
 
 
@@ -168,23 +168,15 @@ def test_threaded_apply_failure(mock_app):
 
 def test_copy_log_text(mock_app):
     """Verify that selected text is copied to the clipboard."""
-    # ARRANGE
     selected_text = "This is a log message."
     mock_app.log_box.get.return_value = selected_text
-
-    # ACT
     App.copy_log_text(mock_app)
-
-    # ASSERT
     mock_app.clipboard_append.assert_called_once_with(selected_text)
 
 
 def test_copy_log_text_no_selection(mock_app):
     """Verify that no error occurs if copy is clicked with no text selected."""
-    # ARRANGE
     mock_app.log_box.get.side_effect = tkinter.TclError("nothing selected")
-
-    # ACT & ASSERT
     try:
         App.copy_log_text(mock_app)
     except tkinter.TclError:
@@ -194,9 +186,6 @@ def test_copy_log_text_no_selection(mock_app):
 
 def test_select_all_log_text(mock_app):
     """Verify the select all function correctly tags all text."""
-    # ACT
     result = App.select_all_log_text(mock_app)
-
-    # ASSERT
     mock_app.log_box.tag_add.assert_called_once_with("sel", "1.0", "end")
-    assert result == "break"  # Important for tkinter event handling
+    assert result == "break"

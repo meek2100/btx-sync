@@ -1,4 +1,5 @@
 # app.py
+
 import customtkinter
 import keyring
 import threading
@@ -11,6 +12,7 @@ from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
 
+# FIX: Removed the incorrect 'Update' import
 from tufup.client import Client
 
 from constants import (
@@ -33,10 +35,8 @@ from utils import resource_path, is_production_environment
 from logger import AppLogger
 
 try:
-    # This version is dynamically created by the release workflow.
     from version import __version__ as APP_VERSION  # type: ignore
 except ImportError:
-    # A fallback for local development.
     APP_VERSION = "0.0.0-dev"
 
 APP_NAME = "btx-sync"
@@ -44,22 +44,11 @@ UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
 
 def check_for_updates(app_instance: "App") -> None:
-    """
-    Checks for app updates in a background thread and displays a notification
-    bar if a new version is found.
-
-    This function is designed to run silently, logging its progress to the
-    debug channel.
-
-    Args:
-        app_instance: The main application instance to notify of updates.
-    """
     logger = AppLogger(
         app_instance.log_message,
         app_instance.get_current_config().get("LOG_LEVEL", "Normal"),
     )
     logger.debug("Checking for updates...")
-    # Determine the correct platform suffix for the update repository URL.
     platform_system = platform.system().lower()
     if platform_system == "windows":
         platform_suffix = "win"
@@ -69,15 +58,12 @@ def check_for_updates(app_instance: "App") -> None:
         platform_suffix = "linux"
     platform_app_name = f"{APP_NAME}-{platform_suffix}"
     logger.debug(f"Platform: {platform_system}, App Name: {platform_app_name}")
-    # Set up local directories for tufup metadata and targets.
     app_data_dir = Path.home() / f".{APP_NAME}"
     app_data_dir.mkdir(exist_ok=True)
     metadata_dir = app_data_dir / "metadata"
     target_dir = app_data_dir / "targets"
     metadata_dir.mkdir(exist_ok=True)
     target_dir.mkdir(exist_ok=True)
-    # Initialize the local TUF repository with the bundled root.json if it
-    # doesn't already exist. This is crucial for the first update check.
     local_root_path = metadata_dir / "root.json"
     if not local_root_path.exists():
         try:
@@ -88,7 +74,6 @@ def check_for_updates(app_instance: "App") -> None:
             logger.error(f"Failed to initialize update metadata: {repr(e)}")
             return
     try:
-        # Configure and initialize the tufup client.
         platform_update_url = f"{UPDATE_URL}{platform_suffix}/"
         client = Client(
             app_name=platform_app_name,
@@ -100,11 +85,9 @@ def check_for_updates(app_instance: "App") -> None:
             target_base_url=f"{platform_update_url}targets/",
         )
         logger.debug(f"tufup.Client(current_version='{APP_VERSION}')")
-        # Check for new updates, including pre-releases ('a', 'b', 'rc').
         new_update = client.check_for_updates(pre="a")
         if new_update:
             logger.debug(f"Update {new_update.version} found.")
-            # Store update info on the app instance and show notification.
             app_instance.tufup_client = client
             app_instance.new_update_info = new_update
             app_instance.show_update_notification()
@@ -115,34 +98,23 @@ def check_for_updates(app_instance: "App") -> None:
 
 
 def cleanup_old_updates() -> None:
-    """
-    On startup, deletes any leftover *.old files from previous updates to
-    keep the application directory clean.
-    """
     install_dir = Path(sys.executable).parent
     for old_file in install_dir.glob("*.old"):
         try:
             old_file.unlink()
             print(f"Removed old update file: {old_file.name}")
         except OSError:
-            # Ignore errors if the file is locked or already gone.
             pass
 
 
 class App(customtkinter.CTk):
-    """
-    The main application class, responsible for the GUI, state management,
-    and coordinating the sync and update processes.
-    """
-
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
         self.title("btx sync")
         self.geometry("800x600")
         self.iconbitmap(resource_path("assets/icon.ico"))
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
-        # --- Update Notification Bar (initially hidden) ---
         self.update_frame = customtkinter.CTkFrame(self, fg_color="#2B39B2")
         self.update_label = customtkinter.CTkLabel(
             self.update_frame, text="A new version is available!"
@@ -154,9 +126,11 @@ class App(customtkinter.CTk):
         self.update_button.pack(side="right", padx=10, pady=5)
         self.new_update_info = None
         self.tufup_client = None
-        # --- Main Controls ---
+
         self.control_frame = customtkinter.CTkFrame(self, height=50)
         self.control_frame.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
+        self.control_frame.grid_columnconfigure(2, weight=1)
+
         self.run_button = customtkinter.CTkButton(
             self.control_frame, text="Run Sync", command=self.start_sync_thread
         )
@@ -169,6 +143,12 @@ class App(customtkinter.CTk):
             border_width=1,
         )
         self.cancel_event = threading.Event()
+        self.status_label = customtkinter.CTkLabel(
+            self.control_frame, text="Loading..."
+        )
+        self.status_label.pack(side="left", padx=10)
+        self.progress_bar = customtkinter.CTkProgressBar(self.control_frame)
+
         self.more_icon = CTkImage(
             light_image=Image.open(resource_path("assets/dots_dark.png")),
             dark_image=Image.open(resource_path("assets/dots_light.png")),
@@ -185,16 +165,12 @@ class App(customtkinter.CTk):
             command=self.show_more_menu,
         )
         self.more_button.pack(side="right", padx=10, pady=5)
-        self.status_label = customtkinter.CTkLabel(
-            self.control_frame, text="Loading..."
-        )
-        self.status_label.pack(side="left", padx=10)
-        # --- Log Box ---
+
         self.log_box = customtkinter.CTkTextbox(
             self, state="disabled", font=("Courier New", 12)
         )
         self.log_box.grid(row=2, column=0, padx=10, pady=(0, 10), sticky="nsew")
-        # --- Menus ---
+
         self.more_menu = tkinter.Menu(self, tearoff=0)
         self.more_menu.add_command(label="Settings", command=self.open_settings)
         self.more_menu.add_command(label="Help", command=self.open_help_file)
@@ -214,7 +190,6 @@ class App(customtkinter.CTk):
         self.help_window = None
 
         self.update_readiness_status()
-        # --- Automatic Update Check on Startup ---
         config = self.get_current_config()
         in_prod = is_production_environment()
         prod_update_enabled = in_prod and config.get("AUTO_UPDATE_ENABLED", True)
@@ -224,18 +199,11 @@ class App(customtkinter.CTk):
                 target=check_for_updates, args=(self,), daemon=True
             )
             update_thread.start()
-        elif not in_prod:
-            self.log_message("Auto-update check disabled in development mode.")
 
     def show_update_notification(self) -> None:
-        """Makes the update notification bar visible at the top of the app."""
         self.update_frame.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="ew")
 
     def apply_update(self) -> None:
-        """
-        Starts the update process in a separate thread to avoid blocking the
-        GUI. Disables the button to prevent multiple clicks.
-        """
         if not self.new_update_info:
             return
         self.update_button.configure(state="disabled", text="Installing...")
@@ -243,28 +211,20 @@ class App(customtkinter.CTk):
         update_thread.start()
 
     def threaded_apply(self) -> None:
-        """
-        Downloads and installs the update using tufup's robust methods.
-        This replaces the previous fragile, script-based approach.
-        """
         if not self.new_update_info:
             self.log_message("[ERROR] Update client not initialized.")
             self.update_button.configure(state="normal", text="Install Now")
             return
         try:
             self.log_message(f"Downloading update {self.new_update_info.version}...")
-            # Use tufup's built-in secure download method
             self.new_update_info.download()
             self.log_message("Download complete. Preparing to install...")
-            # Use tufup's built-in installer, which handles all platform-
-            # specific complexities of replacing the app and restarting.
             self.new_update_info.install(restart=True)
         except Exception as e:
             self.log_message(f"[ERROR] An unexpected error occurred during update: {e}")
             self.update_button.configure(state="normal", text="Install Now")
 
     def force_update_check(self) -> None:
-        """Starts the update check process manually, triggered by the user."""
         self.log_message("\n--- Manual update check initiated ---")
         update_thread = threading.Thread(
             target=check_for_updates, args=(self,), daemon=True
@@ -272,34 +232,22 @@ class App(customtkinter.CTk):
         update_thread.start()
 
     def get_current_config(self) -> dict:
-        """
-        Loads all managed settings from the system keychain, applies defaults
-        for any missing values, and returns them as a dictionary.
-        """
         config = {}
         for key in MANAGED_SETTINGS_KEYS:
-            config[key.upper()] = keyring.get_password(SERVICE_NAME, key)
-        # Apply default values for settings that might not be in the keychain
-        if not config.get(KEY_BACKUP_PATH.upper()):
-            config[KEY_BACKUP_PATH.upper()] = str(
-                Path.home() / DEFAULT_BACKUP_PATH_NAME
-            )
-        if not config.get(KEY_LOG_LEVEL.upper()):
-            config[KEY_LOG_LEVEL.upper()] = DEFAULT_LOG_LEVEL
-        if config.get(KEY_BACKUP_ENABLED.upper()) is None:
-            config[KEY_BACKUP_ENABLED.upper()] = str(int(DEFAULT_BACKUP_ENABLED))
-        if config.get(KEY_AUTO_UPDATE.upper()) is None:
-            config[KEY_AUTO_UPDATE.upper()] = str(int(DEFAULT_AUTO_UPDATE_ENABLED))
-        # Convert string bools to actual booleans for application logic
-        config["BACKUP_ENABLED"] = config[KEY_BACKUP_ENABLED.upper()] == "1"
-        config["AUTO_UPDATE_ENABLED"] = config[KEY_AUTO_UPDATE.upper()] == "1"
+            config[key] = keyring.get_password(SERVICE_NAME, key)
+        if not config.get(KEY_BACKUP_PATH):
+            config[KEY_BACKUP_PATH] = str(Path.home() / DEFAULT_BACKUP_PATH_NAME)
+        if not config.get(KEY_LOG_LEVEL):
+            config[KEY_LOG_LEVEL] = DEFAULT_LOG_LEVEL
+        if config.get(KEY_BACKUP_ENABLED) is None:
+            config[KEY_BACKUP_ENABLED] = str(int(DEFAULT_BACKUP_ENABLED))
+        if config.get(KEY_AUTO_UPDATE) is None:
+            config[KEY_AUTO_UPDATE] = str(int(DEFAULT_AUTO_UPDATE_ENABLED))
+        config["BACKUP_ENABLED"] = config[KEY_BACKUP_ENABLED] == "1"
+        config["AUTO_UPDATE_ENABLED"] = config[KEY_AUTO_UPDATE] == "1"
         return config
 
     def update_readiness_status(self) -> None:
-        """
-        Checks if the required API keys are configured and updates the UI
-        status label and Run button state accordingly.
-        """
         config = self.get_current_config()
         is_ready = all([config.get("BRAZE_API_KEY"), config.get("TRANSIFEX_API_TOKEN")])
         base_status = "Ready" if is_ready else "Configuration required"
@@ -308,13 +256,11 @@ class App(customtkinter.CTk):
         self.status_label.configure(text=f"{base_status}{debug_suffix}")
 
     def show_more_menu(self) -> None:
-        """Displays the 'more options' popup menu below the '...' button."""
         x = self.more_button.winfo_rootx()
         y = self.more_button.winfo_rooty() + self.more_button.winfo_height()
         self.more_menu.tk_popup(x, y)
 
     def open_about_window(self) -> None:
-        """Shows the 'About' dialog with version info."""
         messagebox.showinfo(
             "About btx sync",
             f"Version: {APP_VERSION}\n\n"
@@ -334,55 +280,37 @@ class App(customtkinter.CTk):
             self.help_window.focus()
 
     def show_right_click_menu(self, event) -> None:
-        """Displays the right-click context menu in the log box."""
         self.right_click_menu.tk_popup(event.x_root, event.y_root)
 
     def copy_log_text(self) -> None:
-        """Copies the currently selected text in the log box."""
         try:
             self.clipboard_append(self.log_box.get("sel.first", "sel.last"))
         except tkinter.TclError:
-            # Ignore error if no text is selected.
             pass
 
     def select_all_log_text(self) -> str:
-        """Selects all text in the log box."""
         self.log_box.tag_add("sel", "1.0", "end")
         return "break"
 
     def log_message(self, message: str) -> None:
-        """Appends a message to the log box, ensuring it remains scrollable."""
         self.log_box.configure(state="normal")
         self.log_box.insert("end", message + "\n")
         self.log_box.configure(state="disabled")
         self.log_box.see("end")
 
-    def update_status_label(self, message: str) -> None:
-        """
-        Thread-safe method to update the status label from the sync thread.
-        """
-        self.after(0, self._update_status_label_gui, message)
+    def update_progress(self, current_value: int, max_value: int) -> None:
+        if max_value > 0:
+            progress = float(current_value) / max_value
+            self.progress_bar.set(progress)
 
-    def _update_status_label_gui(self, message: str) -> None:
-        """GUI update logic for the status label, called by update_status_label."""
-        config = self.get_current_config()
-        debug_suffix = " (Debug)" if config.get("LOG_LEVEL") == "Debug" else ""
-        self.status_label.configure(text=f"Running: {message}{debug_suffix}")
-
-    def cancel_sync(self) -> None:
-        """
-        Sets the cancellation event to signal the sync thread to stop and
-        updates the UI to reflect the 'Cancelling' state.
-        """
+    def cancel_sync(self):
         self.status_label.configure(text="Cancelling...")
         self.cancel_button.configure(state="disabled")
         self.cancel_event.set()
 
-    def sync_thread_target(self) -> None:
-        """
-        The main target for the sync thread. It manages the UI state (buttons,
-        labels) and calls the core sync logic.
-        """
+    def sync_thread_target(self):
+        self.progress_bar.pack(side="left", padx=(10, 5), fill="x", expand=True)
+        self.progress_bar.set(0)
         self.run_button.pack_forget()
         self.cancel_button.pack(side="left", padx=10, pady=5)
         self.cancel_button.configure(state="normal")
@@ -397,12 +325,12 @@ class App(customtkinter.CTk):
                     config,
                     self.log_message,
                     self.cancel_event,
-                    self.update_status_label,
+                    self.update_progress,
                 )
             else:
                 self.log_message("--- CONFIGURATION ERROR ---")
         finally:
-            # Restore the UI to its idle state after the sync finishes.
+            self.progress_bar.pack_forget()
             self.cancel_button.pack_forget()
             self.run_button.pack(side="left", padx=10, pady=5)
             status = "Cancelled" if self.cancel_event.is_set() else None
@@ -411,31 +339,22 @@ class App(customtkinter.CTk):
                 self.status_label.configure(text=status)
             self.log_message("\n")
 
-    def start_sync_thread(self) -> None:
-        """
-        Initializes and starts the background thread for the sync process.
-        """
+    def start_sync_thread(self):
         self.cancel_event.clear()
         thread = threading.Thread(target=self.sync_thread_target, daemon=True)
         thread.start()
 
-    def open_settings(self) -> None:
-        """
-        Opens the settings window. If a window already exists, it focuses
-        it; otherwise, it creates a new one. This prevents multiple settings
-        windows.
-        """
+    def open_settings(self):
         if self.settings_window is None or not self.settings_window.winfo_exists():
             self.settings_window = SettingsWindow(self)
-            self.settings_window.grab_set()  # Modal focus
-            self.wait_window(self.settings_window)  # Wait until it's closed
+            self.settings_window.grab_set()
+            self.wait_window(self.settings_window)
             self.update_readiness_status()
         else:
             self.settings_window.focus()
 
 
 if __name__ == "__main__":
-    # In a production (bundled) environment, clean up old update files.
     if is_production_environment():
         cleanup_old_updates()
     customtkinter.set_appearance_mode("System")
