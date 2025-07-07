@@ -165,6 +165,14 @@ class App(customtkinter.CTk):
         )
         self.more_button.pack(side="right", padx=10, pady=5)
 
+        # New label for detailed status
+        self.detail_status_label = customtkinter.CTkLabel(
+            self, text="", text_color="gray", anchor="w"
+        )
+        self.detail_status_label.grid(
+            row=3, column=0, padx=10, pady=(0, 5), sticky="ew"
+        )
+
         self.log_box = customtkinter.CTkTextbox(
             self, state="disabled", font=("Courier New", 12)
         )
@@ -267,6 +275,7 @@ class App(customtkinter.CTk):
         self.run_button.configure(state="normal" if is_ready else "disabled")
         debug_suffix = " (Debug)" if config.get("LOG_LEVEL") == "Debug" else ""
         self.status_label.configure(text=f"{base_status}{debug_suffix}")
+        self.detail_status_label.configure(text="")
 
     def show_more_menu(self) -> None:
         x = self.more_button.winfo_rootx()
@@ -322,6 +331,10 @@ class App(customtkinter.CTk):
                 progress = float(current_value) / max_value
                 self.progress_bar.set(progress)
 
+    def update_status_label(self, message: str) -> None:
+        """Updates the detailed status label with the current operation."""
+        self.detail_status_label.configure(text=message)
+
     def cancel_sync(self):
         self.status_label.configure(text="Cancelling...")
         self.cancel_button.configure(state="disabled")
@@ -350,6 +363,7 @@ class App(customtkinter.CTk):
                     self.log_message,
                     self.cancel_event,
                     self.update_progress,
+                    self.update_status_label,
                     resume=resume,
                 )
             else:

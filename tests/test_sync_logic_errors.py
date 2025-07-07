@@ -18,6 +18,10 @@ def mock_progress_callback(current, total):
     pass
 
 
+def mock_status_callback(message):
+    pass
+
+
 @pytest.fixture
 def mock_config(tmp_path):
     """Provides a standard mock config for tests in this file."""
@@ -49,7 +53,11 @@ def test_sync_robust_to_missing_templates_key(mock_session, mock_config):
     ]
     logged_messages = []
     sync_logic_main(
-        mock_config, logged_messages.append, threading.Event(), mock_progress_callback
+        mock_config,
+        logged_messages.append,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     full_log = "".join(logged_messages)
     assert "--- Sync Complete! ---" in full_log
@@ -61,7 +69,11 @@ def test_sync_handles_generic_exception(mock_session, mock_config):
     mock_session.request.side_effect = TypeError("An unexpected type error")
     logged_messages = []
     sync_logic_main(
-        mock_config, logged_messages.append, threading.Event(), mock_progress_callback
+        mock_config,
+        logged_messages.append,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     full_log = "".join(logged_messages)
     assert "An unexpected error occurred: An unexpected type error" in full_log
@@ -90,7 +102,11 @@ def test_sync_handles_httperror_with_non_json_response(mock_session, mock_config
     mock_session.request.side_effect = err
     logged_messages = []
     sync_logic_main(
-        mock_config, logged_messages.append, threading.Event(), mock_progress_callback
+        mock_config,
+        logged_messages.append,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     full_log = "".join(logged_messages)
     assert "Response Content: <HTML>Error</HTML>" in full_log
@@ -133,7 +149,11 @@ def test_sync_skips_items_with_missing_ids(mock_session, mock_config):
     ]
     mock_session.get.return_value = MagicMock(status_code=404)
     sync_logic_main(
-        mock_config, no_op_callback, threading.Event(), mock_progress_callback
+        mock_config,
+        no_op_callback,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     detail_call_args = [
         c.args[1] for c in mock_session.request.call_args_list if "info" in c.args[1]
@@ -149,11 +169,9 @@ def test_rate_limiting_is_handled(mock_session, mock_config, mocker):
     mock_config["BACKUP_ENABLED"] = False
     mock_sleep = mocker.patch("time.sleep")
 
-    # FIX: The HTTPError must be raised directly from the side_effect
     mock_response_429 = MagicMock(status_code=429, headers={"Retry-After": "5"})
     error_429 = requests.exceptions.HTTPError(response=mock_response_429)
 
-    # Successful responses for the retries
     mock_success_templates = MagicMock(status_code=200, json=lambda: {"templates": []})
     mock_success_blocks = MagicMock(
         status_code=200, json=lambda: {"content_blocks": []}
@@ -166,7 +184,11 @@ def test_rate_limiting_is_handled(mock_session, mock_config, mocker):
     ]
 
     sync_logic_main(
-        mock_config, no_op_callback, threading.Event(), mock_progress_callback
+        mock_config,
+        no_op_callback,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
 
     mock_sleep.assert_called_once_with(5)

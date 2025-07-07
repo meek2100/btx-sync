@@ -23,6 +23,10 @@ def mock_progress_callback(current, total):
     pass
 
 
+def mock_status_callback(message):
+    pass
+
+
 @pytest.fixture
 def mock_config(tmp_path):
     return {
@@ -66,7 +70,11 @@ def test_fetch_braze_list_pagination(mock_session, mock_config):
     ]
     mock_session.get.return_value = MagicMock(status_code=404)
     sync_logic_main(
-        mock_config, no_op_callback, threading.Event(), mock_progress_callback
+        mock_config,
+        no_op_callback,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     expected_calls = [
         call(
@@ -86,7 +94,11 @@ def test_fetch_braze_list_pagination(mock_session, mock_config):
 def test_sync_main_stops_if_backup_fails(mocker, mock_session, mock_config):
     mocker.patch("sync_logic.perform_tmx_backup", return_value=False)
     sync_logic_main(
-        mock_config, no_op_callback, threading.Event(), mock_progress_callback
+        mock_config,
+        no_op_callback,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     mock_session.request.assert_not_called()
 
@@ -97,7 +109,11 @@ def test_sync_logic_halts_on_unexpected_backup_response(
     mocker.patch("sync_logic.perform_tmx_backup", side_effect=ValueError("test error"))
     logged_messages = []
     sync_logic_main(
-        mock_config, logged_messages.append, threading.Event(), mock_progress_callback
+        mock_config,
+        logged_messages.append,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     assert any("An unexpected error occurred" in msg for msg in logged_messages)
     mock_session.request.assert_not_called()
@@ -121,7 +137,11 @@ def test_upload_skips_if_no_content(mocker, mock_session, mock_config, empty_con
     ]
     mock_session.get.return_value = MagicMock(status_code=404)
     sync_logic_main(
-        mock_config, no_op_callback, threading.Event(), mock_progress_callback
+        mock_config,
+        no_op_callback,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     assert mock_session.post.call_count == 1
     assert "resources" in mock_session.post.call_args.args[0]
@@ -132,7 +152,11 @@ def test_backup_disabled(mocker, mock_session, mock_config):
     mock_backup_func = mocker.patch("sync_logic.perform_tmx_backup")
     mock_session.request.return_value = MagicMock(json=lambda: {})
     sync_logic_main(
-        mock_config, no_op_callback, threading.Event(), mock_progress_callback
+        mock_config,
+        no_op_callback,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     mock_backup_func.assert_not_called()
 
@@ -150,7 +174,11 @@ def test_resource_name_no_update_needed(mock_session, mock_config):
         json=lambda: {"data": {"attributes": {"name": "Matching"}}},
     )
     sync_logic_main(
-        mock_config, no_op_callback, threading.Event(), mock_progress_callback
+        mock_config,
+        no_op_callback,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     mock_session.patch.assert_not_called()
 
@@ -167,7 +195,11 @@ def test_resource_name_is_updated_when_mismatched(mock_session, mock_config):
         status_code=200, json=lambda: {"data": {"attributes": {"name": "Old Name"}}}
     )
     sync_logic_main(
-        mock_config, no_op_callback, threading.Event(), mock_progress_callback
+        mock_config,
+        no_op_callback,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     mock_session.patch.assert_called_once()
 
@@ -198,7 +230,11 @@ def test_sync_handles_httperror(mock_session, mock_config):
     mock_session.request.side_effect = err
     logged_messages = []
     sync_logic_main(
-        mock_config, logged_messages.append, threading.Event(), mock_progress_callback
+        mock_config,
+        logged_messages.append,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     assert "[FATAL] An API error occurred." in "".join(logged_messages)
 
@@ -208,7 +244,11 @@ def test_sync_handles_connection_error(mock_session, mock_config):
     mock_session.request.side_effect = requests.exceptions.RequestException("NW down")
     logged_messages = []
     sync_logic_main(
-        mock_config, logged_messages.append, threading.Event(), mock_progress_callback
+        mock_config,
+        logged_messages.append,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     assert any("[FATAL] A network error occurred" in msg for msg in logged_messages)
 
@@ -258,7 +298,11 @@ def test_upload_source_content_success(mock_session, mock_config):
         MagicMock(status_code=202),
     ]
     sync_logic_main(
-        mock_config, no_op_callback, threading.Event(), mock_progress_callback
+        mock_config,
+        no_op_callback,
+        threading.Event(),
+        mock_progress_callback,
+        mock_status_callback,
     )
     assert mock_session.post.call_count == 2
     upload_call = mock_session.post.call_args_list[1]
@@ -330,7 +374,11 @@ def test_sync_cancels_during_long_process(mock_session, mock_config):
 
     logged_messages = []
     sync_logic_main(
-        mock_config, logged_messages.append, cancel_event, mock_progress_callback
+        mock_config,
+        logged_messages.append,
+        cancel_event,
+        mock_progress_callback,
+        mock_status_callback,
     )
 
     full_log = "".join(logged_messages)

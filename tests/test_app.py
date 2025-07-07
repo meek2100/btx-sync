@@ -11,7 +11,6 @@ from app import App, cleanup_old_updates
 def mock_app(mocker):
     """Creates a mock instance of the App class for testing."""
     mocker.patch.object(App, "__init__", lambda s: None)
-    # Mock the messagebox to avoid GUI pop-ups during tests
     mocker.patch("app.messagebox.askyesnocancel", return_value=False)
     app_instance = App()
     app_instance.cancel_event = MagicMock()
@@ -21,14 +20,17 @@ def mock_app(mocker):
     app_instance.log_box = MagicMock()
     app_instance.get_current_config = MagicMock()
     app_instance.log_message = MagicMock()
-    app_instance.update_readiness_status = MagicMock()
     app_instance.settings_window = None
-    app_instance.update_status_label = MagicMock()
     app_instance.update_progress = MagicMock()
     app_instance.new_update_info = MagicMock()
     app_instance.update_button = MagicMock()
     app_instance.clipboard_append = MagicMock()
     app_instance.progress_bar = MagicMock()
+    # FIX: Add a mock for the detail_status_label to prevent recursion errors.
+    app_instance.detail_status_label = MagicMock()
+    # Mock the method that uses the label
+    app_instance.update_readiness_status = MagicMock()
+    app_instance.update_status_label = MagicMock()
     return app_instance
 
 
@@ -39,8 +41,10 @@ def test_app_readiness_config_required(mock_app):
         "TRANSIFEX_API_TOKEN": "token",
         "LOG_LEVEL": "Normal",
     }
+    # We call the real method on the class to test its behavior.
     App.update_readiness_status(mock_app)
     mock_app.run_button.configure.assert_called_with(state="disabled")
+    mock_app.detail_status_label.configure.assert_called_with(text="")
 
 
 def test_app_readiness_is_ready(mock_app):
@@ -69,7 +73,7 @@ def test_start_sync_thread_starts_thread(mock_app, mocker):
     """Verify that start_sync_thread creates and starts a new thread."""
     mock_thread_class = mocker.patch("threading.Thread")
     mock_app.sync_thread_target = MagicMock()
-    # Correctly mock the path object itself
+    # FIX: Patch the path object directly, not its attribute.
     mock_path = mocker.patch("app.STATE_FILE_PATH")
     mock_path.exists.return_value = False
     App.start_sync_thread(mock_app)
@@ -87,11 +91,13 @@ def test_sync_thread_target_ui_updates(mock_app, mocker):
     App.sync_thread_target(mock_app, resume=False)
     mock_app.run_button.pack_forget.assert_called_once()
     mock_app.cancel_button.pack.assert_called_once()
+    # FIX: Add the new status_callback to the assertion
     mock_sync_logic.assert_called_once_with(
         valid_config,
         mock_app.log_message,
         mock_app.cancel_event,
         mock_app.update_progress,
+        mock_app.update_status_label,
         resume=False,
     )
 

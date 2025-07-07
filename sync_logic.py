@@ -363,6 +363,7 @@ def _process_email_templates(
     templates: List[Dict[str, Any]],
     check_for_cancel: Callable[[], None],
     progress_callback: Callable[[int, int], None],
+    status_callback: Callable[[str], None],
     total_items: int,
     processed_items: int,
 ) -> int:
@@ -376,6 +377,7 @@ def _process_email_templates(
             processed_items += 1
             progress_callback(processed_items, total_items)
             continue
+        status_callback(f"Processing Email: {template_name}")
         tx.logger.info(f"\nProcessing '{template_name}' (ID: {template_id})...")
         details = braze.get_item_details(
             BRAZE_EMAIL_TEMPLATE_INFO_ENDPOINT, template_id
@@ -399,6 +401,7 @@ def _process_content_blocks(
     blocks: List[Dict[str, Any]],
     check_for_cancel: Callable[[], None],
     progress_callback: Callable[[int, int], None],
+    status_callback: Callable[[str], None],
     total_items: int,
     processed_items: int,
 ) -> int:
@@ -412,6 +415,7 @@ def _process_content_blocks(
             processed_items += 1
             progress_callback(processed_items, total_items)
             continue
+        status_callback(f"Processing Block: {block_name}")
         tx.logger.info(f"\nProcessing '{block_name}' (ID: {block_id})...")
         details = braze.get_item_details(BRAZE_CONTENT_BLOCK_INFO_ENDPOINT, block_id)
         tx.create_or_update_resource(slug=block_id, name=block_name)
@@ -432,6 +436,7 @@ def sync_logic_main(
     log_callback: Callable[[str], None],
     cancel_event: threading.Event,
     progress_callback: Callable[[int, int], None],
+    status_callback: Callable[[str], None],
     resume: bool = False,
 ) -> None:
     logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
@@ -453,6 +458,7 @@ def sync_logic_main(
         )
 
         check_for_cancel()
+        status_callback("Checking for previous session...")
 
         if resume:
             logger.info("\n--- Resuming previous sync session. ---")
@@ -469,14 +475,17 @@ def sync_logic_main(
             ]
         else:
             if config.get("BACKUP_ENABLED", False):
+                status_callback("Performing TMX backup...")
                 if not perform_tmx_backup(config, tx.session, logger, cancel_event):
                     logger.info("\n--- Sync halted due to backup failure. ---")
+                    status_callback("Backup failed.")
                     return
                 logger.info("--- TMX Backup complete. Proceeding with sync. ---\n")
             else:
                 logger.info("TMX backup is disabled. Skipping.")
 
             check_for_cancel()
+            status_callback("Fetching content from Braze...")
             logger.info("Fetching item lists from Braze...")
             templates_to_process = braze.get_paginated_list(
                 BRAZE_EMAIL_TEMPLATES_LIST_ENDPOINT, "templates"
@@ -501,6 +510,7 @@ def sync_logic_main(
         total_items = len(templates_to_process) + len(blocks_to_process)
         processed_items = 0
         progress_callback(processed_items, total_items)
+        status_callback("Starting sync...")
 
         logger.info("\n[1] Processing Email Templates...")
         processed_items = _process_email_templates(
@@ -509,6 +519,7 @@ def sync_logic_main(
             templates_to_process,
             check_for_cancel,
             progress_callback,
+            status_callback,
             total_items,
             processed_items,
         )
@@ -520,16 +531,19 @@ def sync_logic_main(
             blocks_to_process,
             check_for_cancel,
             progress_callback,
+            status_callback,
             total_items,
             processed_items,
         )
 
+        status_callback("Sync complete!")
         logger.info("\n--- Sync Complete! ---")
         SyncState.clear()
 
     except CancellationError as e:
         logger.info(f"\n--- {e} ---")
         logger.info("Sync state has been saved. You can resume this session later.")
+        status_callback("Sync cancelled.")
     except requests.exceptions.HTTPError as e:
         logger.fatal("An API error occurred.")
         if e.request and e.response is not None:
@@ -542,9 +556,12 @@ def sync_logic_main(
                 logger.error(f"Details: {json.dumps(error_details, indent=2)}")
             except json.JSONDecodeError:
                 logger.error(f"Response Content: {e.response.text}")
+        status_callback("Sync failed: API Error.")
         SyncState.clear()  # Clear state on hard failure
     except requests.exceptions.RequestException as e:
         logger.fatal(f"A network error occurred: {e}")
+        status_callback("Sync failed: Network Error.")
     except Exception as e:
         logger.fatal(f"An unexpected error occurred: {e}")
+        status_callback("Sync failed: Unexpected Error.")
         SyncState.clear()  # Clear state on hard failure
