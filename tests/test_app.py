@@ -71,7 +71,6 @@ def test_start_sync_thread_starts_thread(mock_app, mocker):
     """Verify that start_sync_thread creates and starts a new thread."""
     mock_thread_class = mocker.patch("threading.Thread")
     mock_app.sync_thread_target = MagicMock()
-    # FIX: Patch the entire Path object to avoid the read-only attribute error.
     mock_path = mocker.patch("app.STATE_FILE_PATH")
     mock_path.exists.return_value = False
     App.start_sync_thread(mock_app)
@@ -83,8 +82,8 @@ def test_start_sync_thread_starts_thread(mock_app, mocker):
 
 def test_start_sync_thread_resume_yes(mock_app, mocker):
     """Verify the sync resumes when the user clicks 'Yes'."""
-    # FIX: Correctly patch the Path object's exists method.
-    mocker.patch("app.STATE_FILE_PATH.exists", return_value=True)
+    mock_path = mocker.patch("app.STATE_FILE_PATH")
+    mock_path.exists.return_value = True
     mocker.patch("app.messagebox.askyesnocancel", return_value=True)
     mock_thread_class = mocker.patch("threading.Thread")
     mock_app.sync_thread_target = MagicMock()
@@ -96,7 +95,8 @@ def test_start_sync_thread_resume_yes(mock_app, mocker):
 
 def test_start_sync_thread_resume_no(mock_app, mocker):
     """Verify a new sync starts when the user clicks 'No'."""
-    mocker.patch("app.STATE_FILE_PATH.exists", return_value=True)
+    mock_path = mocker.patch("app.STATE_FILE_PATH")
+    mock_path.exists.return_value = True
     mocker.patch("app.messagebox.askyesnocancel", return_value=False)
     mock_thread_class = mocker.patch("threading.Thread")
     mock_sync_state_clear = mocker.patch("app.SyncState.clear")
@@ -110,7 +110,8 @@ def test_start_sync_thread_resume_no(mock_app, mocker):
 
 def test_start_sync_thread_resume_cancel(mock_app, mocker):
     """Verify the sync is cancelled when the user clicks 'Cancel'."""
-    mocker.patch("app.STATE_FILE_PATH.exists", return_value=True)
+    mock_path = mocker.patch("app.STATE_FILE_PATH")
+    mock_path.exists.return_value = True
     mocker.patch("app.messagebox.askyesnocancel", return_value=None)
     mock_thread_class = mocker.patch("threading.Thread")
     App.start_sync_thread(mock_app)
