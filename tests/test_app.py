@@ -72,7 +72,8 @@ def test_start_sync_thread_starts_thread(mock_app, mocker):
     mock_thread_class = mocker.patch("threading.Thread")
     mock_app.sync_thread_target = MagicMock()
     # FIX: Patch the entire Path object to avoid the read-only attribute error.
-    mocker.patch("app.STATE_FILE_PATH.exists", return_value=False)
+    mock_path = mocker.patch("app.STATE_FILE_PATH")
+    mock_path.exists.return_value = False
     App.start_sync_thread(mock_app)
     mock_thread_class.assert_called_once_with(
         target=mock_app.sync_thread_target, kwargs={"resume": False}, daemon=True
