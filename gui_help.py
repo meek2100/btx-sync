@@ -5,6 +5,7 @@ import webbrowser
 import re
 from pathlib import Path
 from utils import resource_path
+import secrets
 
 
 class HelpWindow(customtkinter.CTkToplevel):
@@ -31,13 +32,14 @@ class HelpWindow(customtkinter.CTkToplevel):
         self.close_button = customtkinter.CTkButton(
             self, text="Close", command=self.destroy
         )
-        self.close_button.grid(row=1, column=0, pady=10)
+        self.close_button.grid(row=1, column=0, pady=(10, 10))
 
     def _configure_tags(self):
         """Defines the styles for Markdown elements."""
+        # Use a try...except block to handle platforms that don't support fonts
         try:
-            self.textbox.tag_config("h2", font=("", 16, "bold"), spacing1=10)
-            self.textbox.tag_config("h3", font=("", 14, "bold"), spacing1=8)
+            self.textbox.tag_config("h2", font=("", 16, "bold"), spacing3=5)
+            self.textbox.tag_config("h3", font=("", 13, "bold"), spacing3=4)
             self.textbox.tag_config("bold", font=("", 12, "bold"))
         except Exception:
             self.textbox.tag_config("h2", spacing1=10, spacing3=5)
@@ -51,122 +53,103 @@ class HelpWindow(customtkinter.CTkToplevel):
             "link", "<Leave>", lambda e: self.textbox.configure(cursor="")
         )
         self.textbox.tag_config("list", lmargin1=20, lmargin2=40)
-        self.textbox.tag_config("h_spacing", spacing3=10)
+        self.textbox.tag_config("separator", spacing1=10, spacing3=10)
 
-    def _get_user_content(self, full_content: str) -> str:
-        """
-        Extracts and combines relevant sections from the README for in-app help.
-        """
-        content_parts = []
+    def _get_user_content(self, full_content: str) -> list[str]:
+        """Extracts and combines relevant sections from the README."""
+        content_sections = []
+        # Define sections to extract in the desired order
         sections_to_extract = [
-            ("Usage", "### Usage"),
-            ("How It Works", "## How It Works"),
-            ("Secure Automatic Updates", "### Secure Automatic Updates"),
+            "## How It Works",
+            "### Usage",
+            "### Secure Automatic Updates",
         ]
 
-        for title, heading in sections_to_extract:
+        for heading in sections_to_extract:
             try:
-                # FIX: Use a more robust regex to find content for each section individually
-                # This pattern finds the content between one heading and the next
+                # Find content between the current heading and the next major heading
                 pattern = re.compile(
                     f"^{re.escape(heading)}(.*?)(?=\n##|\n---|\Z)",
                     re.DOTALL | re.MULTILINE,
                 )
                 match = pattern.search(full_content)
                 if match:
-                    section_content = match.group(1).strip()
-                    # Re-add a consistent heading level for display
-                    content_parts.append(f"## {title}\n{section_content}")
+                    section_content = f"{heading}\n{match.group(1).strip()}"
+                    content_sections.append(section_content)
             except IndexError:
                 continue
 
-        if not content_parts:
-            return "## Help Not Found\nCould not parse help content from README.md."
+        if not content_sections:
+            return ["## Help Not Found\nCould not parse help content from README.md."]
 
-        return "\n\n---\n\n".join(content_parts)
+        return content_sections
 
-    def _parse_and_insert(self, text_block: str):
-        """Parses a block of markdown text and inserts it with formatting."""
+    def _parse_and_insert(self, text_blocks: list[str]):
+        """Parses a list of markdown blocks and inserts them with formatting."""
         self.textbox.configure(state="normal")
         self.textbox.delete("1.0", "end")
 
-        for line in text_block.split("\n"):
-            stripped_line = line.strip()
+        for i, block in enumerate(text_blocks):
+            if i > 0:
+                # Add a separator between sections
+                self.textbox.insert("end", "\n---\n\n", "separator")
 
-            # Skip empty lines to prevent extra space
-            if not stripped_line:
-                self.textbox.insert("end", "\n")
-                continue
+            for line in block.split("\n"):
+                line = line.strip()
+                # Determine line-level tag
+                tag = None
+                if line.startswith("###"):
+                    line, tag = line.replace("###", "").strip(), "h3"
+                elif line.startswith("##"):
+                    line, tag = line.replace("##", "").strip(), "h2"
+                elif line.startswith("- "):
+                    line, tag = "• " + line[2:], "list"
+                elif re.match(r"^\d+\.", line):
+                    line, tag = "  " + line, "list"
 
-            # 1. Determine block-level tags (headings, lists)
-            tag_to_apply = []
-            if stripped_line.startswith("### "):
-                display_text = stripped_line.replace("### ", "")
-                tag_to_apply.append("h3")
-            elif stripped_line.startswith("## "):
-                display_text = stripped_line.replace("## ", "")
-                tag_to_apply.append("h2")
-                tag_to_apply.append("h_spacing")
-            elif stripped_line.startswith("- "):
-                display_text = "• " + stripped_line[2:]
-                tag_to_apply.append("list")
-            elif re.match(r"^\d+\.\s", stripped_line):
-                display_text = "  " + stripped_line
-                tag_to_apply = ["list"]
-            else:
-                display_text = line  # Preserve indentation for paragraphs
+                # Split line by inline markdown, keeping the delimiters
+                parts = re.split(r"(\[.*?\]\(.*?\))|(\*\*.*?\*\*)", line)
+                for part in filter(None, parts):
+                    # Handle links: [text](url)
+                    if part.startswith("[") and part.endswith(")"):
+                        match = re.match(r"\[(.*?)\]\((.*?)\)", part)
+                        if match:
+                            text, url = match.groups()
+                            link_id = f"link-{secrets.token_hex(4)}"
+                            self.textbox.insert("end", text, ("link", link_id))
+                            self.textbox.tag_bind(
+                                link_id,
+                                "<Button-1>",
+                                lambda e, u=url: webbrowser.open(u),
+                            )
+                            continue
 
-            # 2. Insert the line with block tag
-            self.textbox.insert("end", display_text + "\n", tuple(tag_to_apply))
+                    # Handle bold: **text**
+                    elif part.startswith("**") and part.endswith("**"):
+                        text = part[2:-2]
+                        self.textbox.insert("end", text, "bold")
+                        continue
 
-            # 3. Apply inline tags to the line we just inserted
-            current_line_index = self.textbox.index("end-2l")
-            self._apply_inline_tags(current_line_index, display_text)
+                    # Handle plain text
+                    self.textbox.insert("end", part)
+
+                self.textbox.insert("end", "\n", tag)
 
         self.textbox.configure(state="disabled")
-
-    def _apply_inline_tags(self, line_start_index: str, line_content: str):
-        """Finds and applies inline tags to a given line of text."""
-        for match in reversed(
-            list(re.finditer(r"(\[.*?\]\(.*?\))|(\*\*.*?\*\*)", line_content))
-        ):
-            part = match.group(0)
-            start_char, end_char = match.span()
-
-            start_index = f"{line_start_index}+{start_char}c"
-            end_index = f"{line_start_index}+{end_char}c"
-
-            # Handle Links: [text](url)
-            link_match = re.fullmatch(r"\[(.*?)\]\((.*?)\)", part)
-            if link_match:
-                text, url = link_match.groups()
-                self.textbox.delete(start_index, end_index)
-                self.textbox.insert(start_index, text, "link")
-                self.textbox.tag_bind(
-                    "link", "<Button-1>", lambda e, u=url: webbrowser.open(u)
-                )
-                continue
-
-            # Handle Bold: **text**
-            bold_match = re.fullmatch(r"\*\*(.*?)\*\*", part)
-            if bold_match:
-                text = bold_match.group(1)
-                self.textbox.delete(start_index, end_index)
-                self.textbox.insert(start_index, text, "bold")
 
     def _load_and_display_readme(self):
         """Loads, parses, and displays the final formatted help content."""
         try:
             readme_path = Path(resource_path("README.md"))
             if not readme_path.exists():
-                self.textbox.insert("1.0", "Help file (README.md) not found.")
+                self._parse_and_insert(["## Help file not found."])
                 return
 
             full_content = readme_path.read_text(encoding="utf-8")
-            user_content = self._get_user_content(full_content)
-            self._parse_and_insert(user_content)
+            user_content_blocks = self._get_user_content(full_content)
+            self._parse_and_insert(user_content_blocks)
 
         except Exception as e:
-            self.textbox.insert("1.0", f"Error loading help file:\n\n{e}")
+            self._parse_and_insert([f"## Error\nCould not load help file:\n\n{e}"])
         finally:
             self.textbox.configure(state="disabled")
