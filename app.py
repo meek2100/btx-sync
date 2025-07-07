@@ -110,6 +110,8 @@ class App(customtkinter.CTk):
         self.iconbitmap(resource_path("assets/icon.ico"))
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.sync_thread = None
         self.update_frame = customtkinter.CTkFrame(self, fg_color="#2B39B2")
         self.update_label = customtkinter.CTkLabel(
             self.update_frame, text="A new version is available!"
@@ -199,6 +201,17 @@ class App(customtkinter.CTk):
                 target=check_for_updates, args=(self,), daemon=True
             )
             update_thread.start()
+
+    def on_closing(self):
+        """Handle the window closing event."""
+        if self.sync_thread and self.sync_thread.is_alive():
+            if messagebox.askyesno(
+                "Exit",
+                "A sync is currently in progress. Are you sure you want to exit?",
+            ):
+                self.destroy()
+        else:
+            self.destroy()
 
     def show_update_notification(self) -> None:
         self.update_frame.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="ew")
@@ -371,10 +384,10 @@ class App(customtkinter.CTk):
             else:  # No
                 SyncState.clear()
 
-        thread = threading.Thread(
+        self.sync_thread = threading.Thread(
             target=self.sync_thread_target, kwargs={"resume": resume}, daemon=True
         )
-        thread.start()
+        self.sync_thread.start()
 
     def open_settings(self):
         if self.settings_window is None or not self.settings_window.winfo_exists():
