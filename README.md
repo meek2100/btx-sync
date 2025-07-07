@@ -29,7 +29,9 @@ This tool automates the process of preparing Braze content for professional tran
 2.  **Creates Transifex Resources:** For each item from Braze, it creates a corresponding "resource" in your Transifex project.
     * The **Braze ID** (e.g., `email_template_id`) is used as the `slug` in Transifex. This creates a stable, unique identifier that won't change even if the name does.
     * The **Braze Name** (e.g., `template_name`) is used as the display `name` in Transifex, making it easy for translators to identify the content.
-3.  **Extracts Content:** It extracts the text from translatable fields (like `subject` and `body`) from each Braze item.
+3.  **Extracts Content:** It extracts the text from translatable fields from each Braze item. The following fields are extracted:
+    * **Email Templates:** `subject`, `preheader`, `body`
+    * **Content Blocks:** `content`
 4.  **Uploads for Translation:** This extracted text is uploaded as the "source strings" to the corresponding resource in Transifex, ready for your translation team to get to work.
 
 ---

@@ -12,7 +12,6 @@ from pathlib import Path
 from PIL import Image
 from customtkinter import CTkImage
 
-# FIX: Removed the incorrect 'Update' import
 from tufup.client import Client
 
 from constants import (
@@ -26,6 +25,7 @@ from constants import (
     KEY_AUTO_UPDATE,
     KEY_LOG_LEVEL,
     KEY_BACKUP_PATH,
+    PLATFORM_SUFFIXES,
 )
 from config import SERVICE_NAME
 from gui_settings import SettingsWindow
@@ -40,7 +40,9 @@ except ImportError:
     APP_VERSION = "0.0.0-dev"
 
 APP_NAME = "btx-sync"
-UPDATE_URL = "https://meek2100.github.io/btx-sync/"
+UPDATE_URL = (
+    "[https://meek2100.github.io/btx-sync/](https://meek2100.github.io/btx-sync/)"
+)
 
 
 def check_for_updates(app_instance: "App") -> None:
@@ -50,12 +52,7 @@ def check_for_updates(app_instance: "App") -> None:
     )
     logger.debug("Checking for updates...")
     platform_system = platform.system().lower()
-    if platform_system == "windows":
-        platform_suffix = "win"
-    elif platform_system == "darwin":
-        platform_suffix = "mac"
-    else:
-        platform_suffix = "linux"
+    platform_suffix = PLATFORM_SUFFIXES.get(platform_system, "linux")
     platform_app_name = f"{APP_NAME}-{platform_suffix}"
     logger.debug(f"Platform: {platform_system}, App Name: {platform_app_name}")
     app_data_dir = Path.home() / f".{APP_NAME}"
@@ -132,7 +129,9 @@ class App(customtkinter.CTk):
         self.control_frame.grid_columnconfigure(2, weight=1)
 
         self.run_button = customtkinter.CTkButton(
-            self.control_frame, text="Run Sync", command=self.start_sync_thread
+            self.control_frame,
+            text="Run Sync",
+            command=self.start_sync_thread,
         )
         self.run_button.pack(side="left", padx=10, pady=5)
         self.cancel_button = customtkinter.CTkButton(
@@ -177,7 +176,10 @@ class App(customtkinter.CTk):
         self.more_menu.add_separator()
         self.more_menu.add_command(label="About", command=self.open_about_window)
         self.right_click_menu = tkinter.Menu(
-            self.log_box, tearoff=0, background="#2B2B2B", foreground="white"
+            self.log_box,
+            tearoff=0,
+            background="#2B2B2B",
+            foreground="white",
         )
         self.right_click_menu.add_command(label="Copy", command=self.copy_log_text)
         self.right_click_menu.add_separator()
@@ -300,8 +302,14 @@ class App(customtkinter.CTk):
 
     def update_progress(self, current_value: int, max_value: int) -> None:
         if max_value > 0:
-            progress = float(current_value) / max_value
-            self.progress_bar.set(progress)
+            # Throttle progress updates to avoid UI lag
+            if (
+                current_value % 10 == 0
+                or current_value == max_value
+                or current_value == 1
+            ):
+                progress = float(current_value) / max_value
+                self.progress_bar.set(progress)
 
     def cancel_sync(self):
         self.status_label.configure(text="Cancelling...")
@@ -320,7 +328,12 @@ class App(customtkinter.CTk):
         self.log_box.configure(state="disabled")
         config = self.get_current_config()
         try:
-            if all([config["BRAZE_API_KEY"], config["TRANSIFEX_API_TOKEN"]]):
+            if all(
+                [
+                    config["BRAZE_API_KEY"],
+                    config["TRANSIFEX_API_TOKEN"],
+                ]
+            ):
                 sync_logic_main(
                     config,
                     self.log_message,

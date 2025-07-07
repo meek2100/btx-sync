@@ -5,13 +5,20 @@ import json
 import time
 import threading
 from pathlib import Path
-from typing import Callable, Any
+from typing import Callable, Any, List, Dict
 
 from logger import AppLogger
 from constants import (
     BLOCK_TRANSLATABLE_FIELDS,
     EMAIL_TRANSLATABLE_FIELDS,
     TRANSIFEX_API_BASE_URL,
+    BRAZE_EMAIL_TEMPLATES_LIST_ENDPOINT,
+    BRAZE_EMAIL_TEMPLATE_INFO_ENDPOINT,
+    BRAZE_CONTENT_BLOCKS_LIST_ENDPOINT,
+    BRAZE_CONTENT_BLOCK_INFO_ENDPOINT,
+    TRANSIFEX_RESOURCES_ENDPOINT,
+    TRANSIFEX_RESOURCE_STRINGS_ASYNC_UPLOADS_ENDPOINT,
+    TRANSIFEX_TMX_ASYNC_DOWNLOADS_ENDPOINT,
 )
 
 
@@ -106,7 +113,7 @@ class TransifexClient:
     def create_or_update_resource(self, slug: str, name: str) -> None:
         """Ensures a resource exists in Transifex with the correct name."""
         resource_id = f"{self.project_id}:r:{slug}"
-        url = f"{TRANSIFEX_API_BASE_URL}/resources/{resource_id}"
+        url = f"{TRANSIFEX_API_BASE_URL}{TRANSIFEX_RESOURCES_ENDPOINT}/{resource_id}"
         response = self.session.get(url, timeout=30)
 
         if response.status_code == 404:
@@ -119,7 +126,7 @@ class TransifexClient:
 
     def _create_resource(self, slug: str, name: str) -> None:
         """Helper to create a new resource."""
-        create_url = f"{TRANSIFEX_API_BASE_URL}/resources"
+        create_url = f"{TRANSIFEX_API_BASE_URL}{TRANSIFEX_RESOURCES_ENDPOINT}"
         payload = {
             "data": {
                 "type": "resources",
@@ -127,7 +134,10 @@ class TransifexClient:
                 "relationships": {
                     "project": {"data": {"type": "projects", "id": self.project_id}},
                     "i18n_format": {
-                        "data": {"type": "i18n_formats", "id": "KEYVALUEJSON"}
+                        "data": {
+                            "type": "i18n_formats",
+                            "id": "KEYVALUEJSON",
+                        }
                     },
                 },
             }
@@ -145,7 +155,9 @@ class TransifexClient:
         existing_name = details["data"]["attributes"]["name"]
         if existing_name != name:
             self.logger.info(f"  > Updating name for '{resource_id}' to '{name}'...")
-            url = f"{TRANSIFEX_API_BASE_URL}/resources/{resource_id}"
+            url = (
+                f"{TRANSIFEX_API_BASE_URL}{TRANSIFEX_RESOURCES_ENDPOINT}/{resource_id}"
+            )
             patch_payload = {
                 "data": {
                     "type": "resources",
@@ -168,7 +180,7 @@ class TransifexClient:
             return
 
         resource_id = f"{self.project_id}:r:{resource_slug}"
-        url = f"{TRANSIFEX_API_BASE_URL}/resource_strings_async_uploads"
+        url = f"{TRANSIFEX_API_BASE_URL}{TRANSIFEX_RESOURCE_STRINGS_ASYNC_UPLOADS_ENDPOINT}"
         payload = {
             "data": {
                 "type": "resource_strings_async_uploads",
@@ -212,7 +224,7 @@ def perform_tmx_backup(
 
     try:
         logger.info("  > Requesting TMX file for all languages from Transifex...")
-        post_url = f"{TRANSIFEX_API_BASE_URL}/tmx_async_downloads"
+        post_url = f"{TRANSIFEX_API_BASE_URL}{TRANSIFEX_TMX_ASYNC_DOWNLOADS_ENDPOINT}"
         post_payload = {
             "data": {
                 "type": "tmx_async_downloads",
@@ -226,7 +238,9 @@ def perform_tmx_backup(
         )
         response.raise_for_status()
         job_id = response.json()["data"]["id"]
-        status_url = f"{TRANSIFEX_API_BASE_URL}/tmx_async_downloads/{job_id}"
+        status_url = (
+            f"{TRANSIFEX_API_BASE_URL}{TRANSIFEX_TMX_ASYNC_DOWNLOADS_ENDPOINT}/{job_id}"
+        )
         logger.info(f"  > Backup job created successfully. ID: {job_id}")
 
     except requests.exceptions.RequestException as e:
@@ -259,7 +273,6 @@ def perform_tmx_backup(
                 if status == "completed":
                     download_url = status_data["data"]["links"]["download"]
                     logger.info("  > File ready for download.")
-                    # FIX: Use the provided session object for all requests.
                     tmx_response = transifex_session.get(download_url, timeout=60)
                     tmx_response.raise_for_status()
                     file_content = tmx_response.content
@@ -308,6 +321,74 @@ def perform_tmx_backup(
         return False
 
 
+def _process_email_templates(
+    braze: BrazeClient,
+    tx: TransifexClient,
+    templates: List[Dict[str, Any]],
+    check_for_cancel: Callable[[], None],
+    progress_callback: Callable[[int, int], None],
+    total_items: int,
+    processed_items: int,
+) -> int:
+    """Processes all email templates."""
+    for template in templates:
+        check_for_cancel()
+        template_id = template.get("email_template_id")
+        template_name = template.get("template_name")
+        if not template_id or not template_name:
+            tx.logger.info("\nSkipping email template with missing ID or name.")
+            processed_items += 1
+            progress_callback(processed_items, total_items)
+            continue
+        tx.logger.info(f"\nProcessing '{template_name}' (ID: {template_id})...")
+        details = braze.get_item_details(
+            BRAZE_EMAIL_TEMPLATE_INFO_ENDPOINT, template_id
+        )
+        tx.create_or_update_resource(slug=template_id, name=template_name)
+        content = {
+            f: details.get(f)
+            for f in EMAIL_TRANSLATABLE_FIELDS
+            if details.get(f) and str(details.get(f)).strip()
+        }
+        tx.upload_source_content(content, resource_slug=template_id)
+        processed_items += 1
+        progress_callback(processed_items, total_items)
+    return processed_items
+
+
+def _process_content_blocks(
+    braze: BrazeClient,
+    tx: TransifexClient,
+    blocks: List[Dict[str, Any]],
+    check_for_cancel: Callable[[], None],
+    progress_callback: Callable[[int, int], None],
+    total_items: int,
+    processed_items: int,
+) -> int:
+    """Processes all content blocks."""
+    for block in blocks:
+        check_for_cancel()
+        block_id = block.get("content_block_id")
+        block_name = block.get("name")
+        if not block_id or not block_name:
+            tx.logger.info("\nSkipping content block with missing ID or name.")
+            processed_items += 1
+            progress_callback(processed_items, total_items)
+            continue
+        tx.logger.info(f"\nProcessing '{block_name}' (ID: {block_id})...")
+        details = braze.get_item_details(BRAZE_CONTENT_BLOCK_INFO_ENDPOINT, block_id)
+        tx.create_or_update_resource(slug=block_id, name=block_name)
+        content = {
+            f: details.get(f)
+            for f in BLOCK_TRANSLATABLE_FIELDS
+            if details.get(f) and str(details.get(f)).strip()
+        }
+        tx.upload_source_content(content, resource_slug=block_id)
+        processed_items += 1
+        progress_callback(processed_items, total_items)
+    return processed_items
+
+
 def sync_logic_main(
     config: dict,
     log_callback: Callable[[str], None],
@@ -341,52 +422,42 @@ def sync_logic_main(
         else:
             logger.info("TMX backup is disabled. Skipping.")
 
+        check_for_cancel()
         logger.info("Fetching item lists from Braze...")
-        templates = braze.get_paginated_list("/templates/email/list", "templates")
+        templates = braze.get_paginated_list(
+            BRAZE_EMAIL_TEMPLATES_LIST_ENDPOINT, "templates"
+        )
         check_for_cancel()
-        blocks = braze.get_paginated_list("/content_blocks/list", "content_blocks")
+        blocks = braze.get_paginated_list(
+            BRAZE_CONTENT_BLOCKS_LIST_ENDPOINT, "content_blocks"
+        )
         check_for_cancel()
+
         total_items = len(templates) + len(blocks)
         processed_items = 0
+        progress_callback(processed_items, total_items)
 
         logger.info("\n[1] Processing Email Templates...")
-        for template in templates:
-            check_for_cancel()
-            template_id = template.get("email_template_id")
-            template_name = template.get("template_name")
-            if not template_id or not template_name:
-                processed_items += 1
-                continue
-            logger.info(f"\nProcessing '{template_name}' (ID: {template_id})...")
-            details = braze.get_item_details("/templates/email/info", template_id)
-            tx.create_or_update_resource(slug=template_id, name=template_name)
-            content = {
-                f: details.get(f)
-                for f in EMAIL_TRANSLATABLE_FIELDS
-                if details.get(f) and str(details.get(f)).strip()
-            }
-            tx.upload_source_content(content, resource_slug=template_id)
-            processed_items += 1
-            progress_callback(processed_items, total_items)
+        processed_items = _process_email_templates(
+            braze,
+            tx,
+            templates,
+            check_for_cancel,
+            progress_callback,
+            total_items,
+            processed_items,
+        )
 
         logger.info("\n[2] Processing Content Blocks...")
-        for block in blocks:
-            check_for_cancel()
-            block_id = block.get("content_block_id")
-            if not block_id:
-                processed_items += 1
-                continue
-            logger.info(f"\nProcessing '{block.get('name')}'...")
-            details = braze.get_item_details("/content_blocks/info", block_id)
-            tx.create_or_update_resource(slug=block_id, name=block.get("name"))
-            content = {
-                f: details.get(f)
-                for f in BLOCK_TRANSLATABLE_FIELDS
-                if details.get(f) and str(details.get(f)).strip()
-            }
-            tx.upload_source_content(content, resource_slug=block_id)
-            processed_items += 1
-            progress_callback(processed_items, total_items)
+        _process_content_blocks(
+            braze,
+            tx,
+            blocks,
+            check_for_cancel,
+            progress_callback,
+            total_items,
+            processed_items,
+        )
 
         logger.info("\n--- Sync Complete! ---")
 
@@ -396,7 +467,8 @@ def sync_logic_main(
         logger.fatal("An API error occurred.")
         if e.request and e.response is not None:
             logger.error(
-                f"Request to {e.request.url} failed with status {e.response.status_code}"
+                f"Request to {e.request.url} failed with status "
+                f"{e.response.status_code}"
             )
             try:
                 error_details = e.response.json()

@@ -7,10 +7,20 @@ DEFAULT_LOG_LEVEL = "Normal"
 DEFAULT_BACKUP_ENABLED = True
 DEFAULT_AUTO_UPDATE_ENABLED = True
 
+# Translatable fields
 EMAIL_TRANSLATABLE_FIELDS = ["subject", "preheader", "body"]
 BLOCK_TRANSLATABLE_FIELDS = ["content"]
 
-# FIX: Keys are now uppercase to match usage in `get_current_config`.
+# API endpoints
+BRAZE_EMAIL_TEMPLATES_LIST_ENDPOINT = "/templates/email/list"
+BRAZE_EMAIL_TEMPLATE_INFO_ENDPOINT = "/templates/email/info"
+BRAZE_CONTENT_BLOCKS_LIST_ENDPOINT = "/content_blocks/list"
+BRAZE_CONTENT_BLOCK_INFO_ENDPOINT = "/content_blocks/info"
+TRANSIFEX_RESOURCES_ENDPOINT = "/resources"
+TRANSIFEX_RESOURCE_STRINGS_ASYNC_UPLOADS_ENDPOINT = "/resource_strings_async_uploads"
+TRANSIFEX_TMX_ASYNC_DOWNLOADS_ENDPOINT = "/tmx_async_downloads"
+
+# Settings keys
 KEY_BRAZE_API = "BRAZE_API_KEY"
 KEY_TX_API = "TRANSIFEX_API_TOKEN"
 KEY_BRAZE_ENDPOINT = "BRAZE_REST_ENDPOINT"
@@ -34,3 +44,10 @@ MANAGED_SETTINGS_KEYS = [
 ]
 
 DEV_AUTO_UPDATE_ENABLED = True
+
+# Platform suffixes for updates
+PLATFORM_SUFFIXES = {
+    "windows": "win",
+    "darwin": "mac",
+    "linux": "linux",
+}
