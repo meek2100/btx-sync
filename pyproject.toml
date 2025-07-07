@@ -5,6 +5,18 @@ description = "A desktop application for synchronizing content from Braze to Tra
 authors = ["meek2100"]
 readme = "README.md"
 
+packages = [
+    { include = "app.py" },
+    { include = "config.py" },
+    { include = "constants.py" },
+    { include = "gui_help.py" },
+    { include = "gui_settings.py" },
+    { include = "logger.py" },
+    { include = "sync_logic.py" },
+    { include = "utils.py" },
+    { include = "version.py" },
+]
+
 [tool.poetry.dependencies]
 python = "^3.10"
 customtkinter = "^5.2.2"
@@ -19,6 +31,7 @@ CTkMessagebox = "^2.4"
 pytest = "^8.4.1"
 pytest-cov = "^5.0.0"
 pytest-mock = "^3.14.0"
+# Add a specific python version constraint for pyinstaller
 [tool.poetry.group.dev.dependencies.pyinstaller]
 version = "^6.0.0"
 python = ">=3.10, <3.13"
