@@ -25,7 +25,8 @@ pytest-mock = "^3.14.0"
 [tool.poetry.group.dev.dependencies.pyinstaller]
 version = "^6.0.0"
 python = ">=3.10, <3.13"
-
+mypy = "^1.10.0"
+PyQt6-stubs = "^6.6.0"
 
 [build-system]
 requires = ["poetry-core"]
