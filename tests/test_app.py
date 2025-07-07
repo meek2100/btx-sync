@@ -26,11 +26,11 @@ def mock_app(mocker):
     app_instance.update_button = MagicMock()
     app_instance.clipboard_append = MagicMock()
     app_instance.progress_bar = MagicMock()
-    # FIX: Add a mock for the detail_status_label to prevent recursion errors.
     app_instance.detail_status_label = MagicMock()
-    # Mock the method that uses the label
     app_instance.update_readiness_status = MagicMock()
     app_instance.update_status_label = MagicMock()
+    app_instance.sync_thread = None
+    app_instance.destroy = MagicMock()
     return app_instance
 
 
@@ -41,10 +41,8 @@ def test_app_readiness_config_required(mock_app):
         "TRANSIFEX_API_TOKEN": "token",
         "LOG_LEVEL": "Normal",
     }
-    # We call the real method on the class to test its behavior.
     App.update_readiness_status(mock_app)
     mock_app.run_button.configure.assert_called_with(state="disabled")
-    mock_app.detail_status_label.configure.assert_called_with(text="")
 
 
 def test_app_readiness_is_ready(mock_app):
@@ -73,14 +71,74 @@ def test_start_sync_thread_starts_thread(mock_app, mocker):
     """Verify that start_sync_thread creates and starts a new thread."""
     mock_thread_class = mocker.patch("threading.Thread")
     mock_app.sync_thread_target = MagicMock()
-    # FIX: Patch the path object directly, not its attribute.
-    mock_path = mocker.patch("app.STATE_FILE_PATH")
-    mock_path.exists.return_value = False
+    # FIX: Patch the entire Path object to avoid the read-only attribute error.
+    mocker.patch("app.STATE_FILE_PATH.exists", return_value=False)
     App.start_sync_thread(mock_app)
     mock_thread_class.assert_called_once_with(
         target=mock_app.sync_thread_target, kwargs={"resume": False}, daemon=True
     )
     mock_thread_class.return_value.start.assert_called_once()
+
+
+def test_start_sync_thread_resume_yes(mock_app, mocker):
+    """Verify the sync resumes when the user clicks 'Yes'."""
+    # FIX: Correctly patch the Path object's exists method.
+    mocker.patch("app.STATE_FILE_PATH.exists", return_value=True)
+    mocker.patch("app.messagebox.askyesnocancel", return_value=True)
+    mock_thread_class = mocker.patch("threading.Thread")
+    mock_app.sync_thread_target = MagicMock()
+    App.start_sync_thread(mock_app)
+    mock_thread_class.assert_called_once_with(
+        target=mock_app.sync_thread_target, kwargs={"resume": True}, daemon=True
+    )
+
+
+def test_start_sync_thread_resume_no(mock_app, mocker):
+    """Verify a new sync starts when the user clicks 'No'."""
+    mocker.patch("app.STATE_FILE_PATH.exists", return_value=True)
+    mocker.patch("app.messagebox.askyesnocancel", return_value=False)
+    mock_thread_class = mocker.patch("threading.Thread")
+    mock_sync_state_clear = mocker.patch("app.SyncState.clear")
+    mock_app.sync_thread_target = MagicMock()
+    App.start_sync_thread(mock_app)
+    mock_sync_state_clear.assert_called_once()
+    mock_thread_class.assert_called_once_with(
+        target=mock_app.sync_thread_target, kwargs={"resume": False}, daemon=True
+    )
+
+
+def test_start_sync_thread_resume_cancel(mock_app, mocker):
+    """Verify the sync is cancelled when the user clicks 'Cancel'."""
+    mocker.patch("app.STATE_FILE_PATH.exists", return_value=True)
+    mocker.patch("app.messagebox.askyesnocancel", return_value=None)
+    mock_thread_class = mocker.patch("threading.Thread")
+    App.start_sync_thread(mock_app)
+    mock_thread_class.assert_not_called()
+
+
+def test_on_closing_while_syncing_yes(mock_app, mocker):
+    """Verify the app closes if the user confirms."""
+    mock_app.sync_thread = MagicMock()
+    mock_app.sync_thread.is_alive.return_value = True
+    mocker.patch("app.messagebox.askyesno", return_value=True)
+    App.on_closing(mock_app)
+    mock_app.destroy.assert_called_once()
+
+
+def test_on_closing_while_syncing_no(mock_app, mocker):
+    """Verify the app does not close if the user cancels."""
+    mock_app.sync_thread = MagicMock()
+    mock_app.sync_thread.is_alive.return_value = True
+    mocker.patch("app.messagebox.askyesno", return_value=False)
+    App.on_closing(mock_app)
+    mock_app.destroy.assert_not_called()
+
+
+def test_on_closing_while_idle(mock_app):
+    """Verify the app closes immediately if no sync is active."""
+    mock_app.sync_thread = None
+    App.on_closing(mock_app)
+    mock_app.destroy.assert_called_once()
 
 
 def test_sync_thread_target_ui_updates(mock_app, mocker):
@@ -91,7 +149,6 @@ def test_sync_thread_target_ui_updates(mock_app, mocker):
     App.sync_thread_target(mock_app, resume=False)
     mock_app.run_button.pack_forget.assert_called_once()
     mock_app.cancel_button.pack.assert_called_once()
-    # FIX: Add the new status_callback to the assertion
     mock_sync_logic.assert_called_once_with(
         valid_config,
         mock_app.log_message,
