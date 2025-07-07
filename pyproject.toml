@@ -2,8 +2,10 @@
 name = "btx-sync"
 version = "0.1.0"
 description = "A desktop application for synchronizing content from Braze to Transifex."
-authors = ["meek2100"]
+authors = ["meek2100 <meek2100@users.noreply.github.com>"]
 readme = "README.md"
+homepage = "https://github.com/meek2100/btx-sync"
+repository = "https://github.com/meek2100/btx-sync"
 package-mode = false
 
 [tool.poetry.dependencies]
