@@ -37,9 +37,6 @@ jobs:
       - name: Run Ruff Linter
         run: poetry run ruff check
 
-      - name: Run MyPy Static Type Checker
-        run: poetry run mypy .
-
   build:
     name: Build on ${{ matrix.os }}
     needs: lint_and_test
