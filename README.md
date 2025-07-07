@@ -17,7 +17,7 @@ A cross-platform desktop application for synchronizing content from Braze to Tra
 This application includes a secure, automatic update feature to ensure you always have the latest version.
 
 -   **On Startup**: The app quietly checks for new versions in the background.
--   **Secure**: All updates are cryptographically signed using The Update Framework (TUF) to verify they are from the developer and have not been tampered with.
+-   **Secure**: All updates are cryptographically signed to verify they are from the developer and have not been tampered with.
 -   **Seamless**: If an update is found, it will be downloaded and installed automatically. You will be prompted to restart the application to complete the process.
 -   **Control**: You can disable this feature at any time in the Settings panel.
 
@@ -60,7 +60,7 @@ This tool automates the process of preparing Braze content for professional tran
 
 ### Development Setup
 
-To run this application from the source code, you'll need Python 3.10 or higher.
+To run this application from the source code, you'll need Python 3.10+ and [Poetry](https://python-poetry.org/docs/#installation).
 
 1.  **Clone the repository:**
     ```bash
@@ -68,49 +68,49 @@ To run this application from the source code, you'll need Python 3.10 or higher.
     cd btx-sync
     ```
 
-2.  **Create and activate a virtual environment:**
+2.  **Install dependencies using Poetry:**
+    This command will create a virtual environment and install all necessary main and development packages listed in `pyproject.toml`.
     ```bash
-    # For Windows
-    python -m venv .venv
-    .venv\Scripts\activate
-
-    # For macOS/Linux
-    python3 -m venv .venv
-    source .venv/bin/activate
+    poetry install
     ```
 
-3.  **Install core dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Install development dependencies for testing:**
-    ```bash
-    pip install -r tests/requirements-dev.txt
-    ```
-
-5.  **(Optional) Create Placeholder Version File:**
-    To prevent linter errors in your IDE, create a local version file. This file is ignored by Git.
+3.  **(Optional) Create Placeholder Version File:**
+    To prevent linter errors like `Import "version" could not be resolved` in your IDE, create a local placeholder file. This file is ignored by Git.
     ```bash
     echo '__version__ = "0.0.0-dev"' > version.py
     ```
 
-6.  **Run the application:**
+4.  **Run the application:**
+    This command runs the `app.py` script using the Python interpreter from the virtual environment managed by Poetry.
     ```bash
-    python app.py
+    poetry run python app.py
     ```
+
+### Releasing a New Version
+
+The application version is derived automatically from Git tags. To release a new version:
+
+1.  Ensure all changes are committed to the `main` branch.
+2.  Create a new Git tag with a 'v' prefix (e.g., `v1.1.0`).
+3.  Push the tag to the repository (`git push --tags`). This will trigger the release workflow.
 
 ### Testing
 
-This project uses **pytest** for unit and integration testing and is configured to measure code coverage. We aim for high test coverage to ensure reliability and prevent regressions.
+This project uses `pytest` for unit testing. To run the test suite:
 
-1.  **Run All Tests:**
-    To run the full test suite and generate a coverage report, run the following command from the project's root directory:
+1.  Make sure you have installed the development dependencies via `poetry install`.
+2.  Run pytest from the project's root directory:
     ```bash
-    pytest --cov=.
+    poetry run pytest --cov=.
     ```
 
-2.  **Testing Philosophy:**
-    -   **Unit Tests:** Core logic, API clients, and utility functions are tested in isolation. External dependencies like `requests` and `keyring` are mocked to ensure tests are fast and predictable.
-    -   **Error Handling:** Tests are designed to cover not just the "happy path" but also various error conditions, such as API failures, network issues, and unexpected data formats.
-    -   **CI/CD:** The full test suite is run automatically via GitHub Actions on every push and pull request to the `main` and `develop` branches, ensuring that no new changes break existing functionality.
+### Building the Executable
+
+You can package the application into a standalone executable using `PyInstaller`. This command mirrors the production build process.
+
+```bash
+# For Windows
+poetry run pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.ico" --add-data "assets;assets" --add-data "README.md;." app.py
+
+# For macOS/Linux
+poetry run pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.icns" --add-data "assets:assets" --add-data "README.md:." app.py
