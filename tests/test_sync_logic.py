@@ -266,61 +266,84 @@ def test_upload_source_content_success(mock_session, mock_config):
     assert '"subject": "Hello"' in upload_payload["data"]["attributes"]["content"]
 
 
-def test_sync_cancels_during_long_process(mock_session, mock_config, mocker):
+def test_sync_cancels_during_long_process(mock_session, mock_config):
+    """
+    FIX: This test has been rewritten to be more stable. It now correctly
+    mocks the session calls and ensures the mock response list is not
+    exhausted, which was the source of the infinite loop.
+    """
     cancel_event = threading.Event()
-    templates = [
-        {"email_template_id": f"id_{i}", "template_name": f"t_{i}"} for i in range(10)
-    ]
-    mock_session.post.return_value = MagicMock(
-        status_code=200, json=lambda: {"data": {"id": "job1"}}
-    )
-    mocker.patch("requests.get").return_value = MagicMock(
-        status_code=200, content=b"<tmx></tmx>"
-    )
 
-    # FIX: Use a simple list of mock objects as a side_effect.
-    # This is more stable than a router function for complex call sequences.
+    # 1. Define the data that will be returned by the mocks
+    templates = [
+        {"email_template_id": f"id_{i}", "template_name": f"t_{i}"} for i in range(7)
+    ]
+
+    # 2. Set up the sequence of mock responses for API calls
+    # This list will be consumed by `mock_session.request`
     braze_responses = []
-    # Call 1: List templates
+    # Call to list templates
     braze_responses.append(
         MagicMock(status_code=200, json=lambda: {"templates": templates})
     )
-    # Call 2: List content blocks
+    # Call to list content blocks
     braze_responses.append(
         MagicMock(status_code=200, json=lambda: {"content_blocks": []})
     )
-    # Calls 3-8: Get details for the first 5 templates
+    # Calls to get details for the first 5 templates
     for i in range(5):
         braze_responses.append(
-            MagicMock(status_code=200, json=lambda: {"subject": f"Test {i}"})
+            MagicMock(status_code=200, json=lambda i=i: {"subject": f"Test {i}"})
         )
 
-    # After the 5th detail call, the event will be set.
+    # On the call for the 6th template, set the cancel event
     def set_cancel_and_respond(*args, **kwargs):
         cancel_event.set()
         return MagicMock(status_code=200, json=lambda: {"subject": "Test 6"})
 
     braze_responses.append(MagicMock(side_effect=set_cancel_and_respond))
+
+    # Add a final mock to prevent the list from being exhausted.
+    # The test should cancel before this is ever used.
+    braze_responses.append(
+        MagicMock(status_code=200, json=lambda: {"subject": "Final"})
+    )
     mock_session.request.side_effect = braze_responses
 
-    # Set up the Transifex mocks
-    def transifex_get_router(url, **kwargs):
-        mock_response = MagicMock()
-        mock_response.headers.get.return_value = "application/vnd.api+json"
-        if "project_translation_memory_async_downloads" in url:
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "data": {
-                    "attributes": {"status": "completed"},
-                    "links": {"download": "http://mock.url/download"},
-                }
+    # 3. Set up mocks for other calls made during the sync process
+    # Mock for TMX backup POST call
+    mock_session.post.return_value = MagicMock(
+        status_code=200, json=lambda: {"data": {"id": "job1"}}
+    )
+
+    # Mock for TMX backup GET calls (polling and download)
+    # The router ensures the correct response is returned based on the URL
+    tmx_download_response = MagicMock(status_code=200, content=b"<tmx></tmx>")
+    tmx_status_response = MagicMock(
+        status_code=200,
+        headers={"Content-Type": "application/vnd.api+json"},
+        json=lambda: {
+            "data": {
+                "attributes": {"status": "completed"},
+                "links": {"download": "http://mock.url/download"},
             }
+        },
+    )
+    # Mock for Transifex resource GET calls (to check if they exist)
+    tx_resource_response = MagicMock(status_code=404)
+
+    def get_router(url, **kwargs):
+        if "tmx_async_downloads" in url:
+            return tmx_status_response
+        elif "mock.url/download" in url:
+            return tmx_download_response
         elif "/resources/" in url:
-            mock_response.status_code = 404
-        return mock_response
+            return tx_resource_response
+        return MagicMock(status_code=200)
 
-    mock_session.get.side_effect = transifex_get_router
+    mock_session.get.side_effect = get_router
 
+    # 4. Run the sync logic and assert the outcome
     logged_messages = []
     sync_logic_main(
         mock_config, logged_messages.append, cancel_event, mock_progress_callback

@@ -41,15 +41,15 @@ class BrazeClient:
                 response.raise_for_status()
                 return response
             except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 429:
+                if e.response and e.response.status_code == 429:
                     retry_after = int(e.response.headers.get("Retry-After", 0))
                     wait_time = retry_after if retry_after > 0 else self.api_call_delay
                     self.logger.info(
                         f"Rate limit hit. Waiting for {wait_time} seconds."
                     )
                     time.sleep(wait_time)
-                else:
-                    raise
+                    continue
+                raise
             except requests.exceptions.RequestException as e:
                 self.logger.error(f"A network error occurred: {e}")
                 raise
@@ -79,7 +79,6 @@ class BrazeClient:
 
     def get_item_details(self, endpoint: str, item_id: str) -> dict[str, Any]:
         """Fetches detailed information for a single Braze item."""
-        # FIX: Use the correct parameter name based on the endpoint.
         if "email" in endpoint:
             id_param_name = "email_template_id"
         else:
@@ -260,7 +259,8 @@ def perform_tmx_backup(
                 if status == "completed":
                     download_url = status_data["data"]["links"]["download"]
                     logger.info("  > File ready for download.")
-                    tmx_response = requests.get(download_url, timeout=60)
+                    # FIX: Use the provided session object for all requests.
+                    tmx_response = transifex_session.get(download_url, timeout=60)
                     tmx_response.raise_for_status()
                     file_content = tmx_response.content
                     break
