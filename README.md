@@ -60,7 +60,7 @@ This tool automates the process of preparing Braze content for professional tran
 
 ### Development Setup
 
-To run this application from the source code, you'll need Python 3.10 or higher and [Poetry](https://python-poetry.org/docs/#installation).
+To run this application from the source code, you'll need Python 3.10+ and [Poetry](https://python-poetry.org/docs/#installation).
 
 1.  **Clone the repository:**
     ```bash
@@ -69,6 +69,7 @@ To run this application from the source code, you'll need Python 3.10 or higher 
     ```
 
 2.  **Install dependencies using Poetry:**
+    This command will create a virtual environment and install all necessary main and development packages listed in `pyproject.toml`.
     ```bash
     poetry install
     ```
@@ -80,6 +81,7 @@ To run this application from the source code, you'll need Python 3.10 or higher 
     ```
 
 4.  **Run the application:**
+    This command runs the `app.py` script using the Python interpreter from the virtual environment managed by Poetry.
     ```bash
     poetry run python app.py
     ```
@@ -96,7 +98,7 @@ The application version is derived automatically from Git tags. To release a new
 
 This project uses `pytest` for unit testing. To run the test suite:
 
-1.  Make sure you have installed the development dependencies (`poetry install`).
+1.  Make sure you have installed the development dependencies via `poetry install`.
 2.  Run pytest from the project's root directory:
     ```bash
     poetry run pytest --cov=.
