@@ -1,7 +1,0 @@
-# requirements.txt
-
-customtkinter
-requests
-keyring
-Pillow
-tufup
