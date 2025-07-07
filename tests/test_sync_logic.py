@@ -268,56 +268,31 @@ def test_upload_source_content_success(mock_session, mock_config):
 
 def test_sync_cancels_during_long_process(mock_session, mock_config):
     """
-    FIX: This test has been rewritten to be more stable. It now correctly
-    mocks the session calls and ensures the mock response list is not
-    exhausted, which was the source of the infinite loop.
+    FIX: This test has been rewritten to use a side_effect function for
+    mocking, which is more robust and avoids JSON serialization errors with
+    unexpected MagicMock objects.
     """
     cancel_event = threading.Event()
-
-    # 1. Define the data that will be returned by the mocks
     templates = [
         {"email_template_id": f"id_{i}", "template_name": f"t_{i}"} for i in range(7)
     ]
+    braze_call_count = 0
 
-    # 2. Set up the sequence of mock responses for API calls
-    # This list will be consumed by `mock_session.request`
-    braze_responses = []
-    # Call to list templates
-    braze_responses.append(
-        MagicMock(status_code=200, json=lambda: {"templates": templates})
-    )
-    # Call to list content blocks
-    braze_responses.append(
-        MagicMock(status_code=200, json=lambda: {"content_blocks": []})
-    )
-    # Calls to get details for the first 5 templates
-    for i in range(5):
-        braze_responses.append(
-            MagicMock(status_code=200, json=lambda i=i: {"subject": f"Test {i}"})
-        )
+    def mock_braze_request(method, url, **kwargs):
+        nonlocal braze_call_count
+        braze_call_count += 1
+        if "templates/email/list" in url:
+            return MagicMock(status_code=200, json=lambda: {"templates": templates})
+        if "content_blocks/list" in url:
+            return MagicMock(status_code=200, json=lambda: {"content_blocks": []})
+        if "templates/email/info" in url:
+            if braze_call_count == 8:
+                cancel_event.set()
+            return MagicMock(status_code=200, json=lambda: {"subject": "Test"})
+        return MagicMock(status_code=200, json=lambda: {})
 
-    # On the call for the 6th template, set the cancel event
-    def set_cancel_and_respond(*args, **kwargs):
-        cancel_event.set()
-        return MagicMock(status_code=200, json=lambda: {"subject": "Test 6"})
+    mock_session.request.side_effect = mock_braze_request
 
-    braze_responses.append(MagicMock(side_effect=set_cancel_and_respond))
-
-    # Add a final mock to prevent the list from being exhausted.
-    # The test should cancel before this is ever used.
-    braze_responses.append(
-        MagicMock(status_code=200, json=lambda: {"subject": "Final"})
-    )
-    mock_session.request.side_effect = braze_responses
-
-    # 3. Set up mocks for other calls made during the sync process
-    # Mock for TMX backup POST call
-    mock_session.post.return_value = MagicMock(
-        status_code=200, json=lambda: {"data": {"id": "job1"}}
-    )
-
-    # Mock for TMX backup GET calls (polling and download)
-    # The router ensures the correct response is returned based on the URL
     tmx_download_response = MagicMock(status_code=200, content=b"<tmx></tmx>")
     tmx_status_response = MagicMock(
         status_code=200,
@@ -329,7 +304,6 @@ def test_sync_cancels_during_long_process(mock_session, mock_config):
             }
         },
     )
-    # Mock for Transifex resource GET calls (to check if they exist)
     tx_resource_response = MagicMock(status_code=404)
 
     def get_router(url, **kwargs):
@@ -343,10 +317,22 @@ def test_sync_cancels_during_long_process(mock_session, mock_config):
 
     mock_session.get.side_effect = get_router
 
-    # 4. Run the sync logic and assert the outcome
+    def post_router(url, data, **kwargs):
+        if "tmx_async_downloads" in url:
+            return MagicMock(status_code=200, json=lambda: {"data": {"id": "job1"}})
+        if "resource_strings_async_uploads" in url:
+            return MagicMock(status_code=202)
+        if "/resources" in url:
+            return MagicMock(status_code=201)
+        return MagicMock()
+
+    mock_session.post.side_effect = post_router
+
     logged_messages = []
     sync_logic_main(
         mock_config, logged_messages.append, cancel_event, mock_progress_callback
     )
 
-    assert "Sync process was cancelled by the user" in "".join(logged_messages)
+    full_log = "".join(logged_messages)
+    assert "Sync process was cancelled by the user" in full_log
+    assert "Sync Complete!" not in full_log
