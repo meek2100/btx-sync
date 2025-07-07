@@ -286,11 +286,13 @@ class SettingsWindow(customtkinter.CTkToplevel):
 
     def save_settings(self) -> None:
         def set_key(key, value):
-            return (
+            if value:
                 keyring.set_password(SERVICE_NAME, key, value)
-                if value
-                else keyring.delete_password(SERVICE_NAME, key)
-            )
+            else:
+                try:
+                    keyring.delete_password(SERVICE_NAME, key)
+                except keyring.errors.PasswordNotFoundError:
+                    pass
 
         set_key(KEY_BRAZE_API, self.braze_api_key_entry.get())
         set_key(KEY_TX_API, self.transifex_api_token_entry.get())
@@ -304,18 +306,37 @@ class SettingsWindow(customtkinter.CTkToplevel):
         self.save_button.configure(state="disabled")
 
     def load_settings(self) -> None:
+        """
+        Loads settings from the keychain and includes a one-time migration
+        for keys that were renamed in a previous update.
+        """
+        # old_key: new_key
+        migration_map = {
+            "braze_endpoint": KEY_BRAZE_ENDPOINT,
+            "transifex_org": KEY_TX_ORG,
+            "transifex_project": KEY_TX_PROJECT,
+            "auto_update_enabled": KEY_AUTO_UPDATE,
+            "backup_enabled": KEY_BACKUP_ENABLED,
+        }
+        for old_key, new_key in migration_map.items():
+            # Check if an old setting exists and a new one doesn't
+            old_value = keyring.get_password(SERVICE_NAME, old_key)
+            if old_value and not keyring.get_password(SERVICE_NAME, new_key):
+                # Save the old value to the new key and delete the old key
+                keyring.set_password(SERVICE_NAME, new_key, old_value)
+                keyring.delete_password(SERVICE_NAME, old_key)
+
         def get_setting(key, default=""):
             return keyring.get_password(SERVICE_NAME, key) or default
 
-        self.braze_api_key_entry.insert(0, get_setting(KEY_BRAZE_API, ""))
-        self.transifex_api_token_entry.insert(0, get_setting(KEY_TX_API, ""))
-        self.braze_endpoint_entry.insert(0, get_setting(KEY_BRAZE_ENDPOINT, ""))
-        self.transifex_org_slug_entry.insert(0, get_setting(KEY_TX_ORG, ""))
-        self.transifex_project_slug_entry.insert(0, get_setting(KEY_TX_PROJECT, ""))
+        self.braze_api_key_entry.insert(0, get_setting(KEY_BRAZE_API))
+        self.transifex_api_token_entry.insert(0, get_setting(KEY_TX_API))
+        self.braze_endpoint_entry.insert(0, get_setting(KEY_BRAZE_ENDPOINT))
+        self.transifex_org_slug_entry.insert(0, get_setting(KEY_TX_ORG))
+        self.transifex_project_slug_entry.insert(0, get_setting(KEY_TX_PROJECT))
         self.backup_directory_entry.insert(
             0, get_setting(KEY_BACKUP_PATH, str(Path.home() / DEFAULT_BACKUP_PATH_NAME))
         )
-
         self.log_level_menu.set(get_setting(KEY_LOG_LEVEL, DEFAULT_LOG_LEVEL))
         backup_val = get_setting(KEY_BACKUP_ENABLED, str(int(DEFAULT_BACKUP_ENABLED)))
         self.backup_checkbox.select() if backup_val == "1" else self.backup_checkbox.deselect()

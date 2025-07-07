@@ -14,12 +14,13 @@ def no_op_callback(message):
     pass
 
 
-def mock_progress_callback(message):
+def mock_progress_callback(current, total):
     pass
 
 
 @pytest.fixture
 def mock_config(tmp_path):
+    """Provides a standard mock config for tests in this file."""
     return {
         "BRAZE_API_KEY": "test_braze_key",
         "BRAZE_REST_ENDPOINT": "https://rest.mock.braze.com",
@@ -34,6 +35,7 @@ def mock_config(tmp_path):
 
 @pytest.fixture
 def mock_session(mocker):
+    """Mocks requests.Session and returns the mock instance."""
     mock_session_instance = MagicMock()
     mocker.patch("requests.Session", return_value=mock_session_instance)
     return mock_session_instance
@@ -82,17 +84,16 @@ def test_backup_handles_request_exception_during_polling(mock_config):
 
 def test_sync_handles_httperror_with_non_json_response(mock_session, mock_config):
     mock_config["BACKUP_ENABLED"] = False
-    mock_response = MagicMock(status_code=500)
+    mock_response = MagicMock(status_code=500, text="<HTML>Error</HTML>")
     mock_response.json.side_effect = json.JSONDecodeError("msg", "doc", 0)
-    mock_response.text = "<html><body><h1>Internal Server Error</h1></body></html>"
-    err = requests.exceptions.HTTPError("Server Error", response=mock_response)
+    err = requests.exceptions.HTTPError(response=mock_response)
     mock_session.request.side_effect = err
     logged_messages = []
     sync_logic_main(
         mock_config, logged_messages.append, threading.Event(), mock_progress_callback
     )
     full_log = "".join(logged_messages)
-    assert "Response Content: <html>" in full_log
+    assert "Response Content: <HTML>Error</HTML>" in full_log
 
 
 def test_backup_handles_unexpected_content_type(mock_config, mocker):
@@ -127,8 +128,8 @@ def test_sync_skips_items_with_missing_ids(mock_session, mock_config):
     ]
     mock_session.request.side_effect = [
         MagicMock(status_code=200, json=lambda: {"templates": templates}),
-        MagicMock(status_code=200, json=lambda: {"subject": "Test"}),
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
+        MagicMock(status_code=200, json=lambda: {"subject": "Test"}),
     ]
     mock_session.get.return_value = MagicMock(status_code=404)
     sync_logic_main(
@@ -138,22 +139,35 @@ def test_sync_skips_items_with_missing_ids(mock_session, mock_config):
         c.args[1] for c in mock_session.request.call_args_list if "info" in c.args[1]
     ]
     assert len(detail_call_args) == 1
-    assert "info_id=id_123" in detail_call_args[0]
+    assert "email_template_id=id_123" in detail_call_args[0]
 
 
 def test_rate_limiting_is_handled(mock_session, mock_config, mocker):
+    """
+    Verify the client waits and retries when a 429 status code is received.
+    """
     mock_config["BACKUP_ENABLED"] = False
     mock_sleep = mocker.patch("time.sleep")
-    mock_429_response = MagicMock(status_code=429, headers={"Retry-After": "5"})
-    error = requests.exceptions.HTTPError(response=mock_429_response)
-    mock_429_response.raise_for_status.side_effect = error
+
+    # FIX: The HTTPError must be raised directly from the side_effect
+    mock_response_429 = MagicMock(status_code=429, headers={"Retry-After": "5"})
+    error_429 = requests.exceptions.HTTPError(response=mock_response_429)
+
+    # Successful responses for the retries
+    mock_success_templates = MagicMock(status_code=200, json=lambda: {"templates": []})
+    mock_success_blocks = MagicMock(
+        status_code=200, json=lambda: {"content_blocks": []}
+    )
+
     mock_session.request.side_effect = [
-        mock_429_response,
-        MagicMock(status_code=200, json=lambda: {"templates": []}),
-        MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
+        error_429,
+        mock_success_templates,
+        mock_success_blocks,
     ]
+
     sync_logic_main(
         mock_config, no_op_callback, threading.Event(), mock_progress_callback
     )
+
     mock_sleep.assert_called_once_with(5)
     assert mock_session.request.call_count == 3

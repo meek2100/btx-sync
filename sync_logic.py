@@ -29,8 +29,6 @@ class BrazeClient:
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
         self.base_url = endpoint
         self.logger = logger
-        # This is now a fallback, only used if the server doesn't specify a
-        # `Retry-After` duration on a 429 error.
         self.api_call_delay = 1.0
 
     def _make_request(self, method: str, url: str, **kwargs) -> requests.Response:
@@ -43,9 +41,7 @@ class BrazeClient:
                 response.raise_for_status()
                 return response
             except requests.exceptions.HTTPError as e:
-                # Check if the error is a rate-limit error
                 if e.response.status_code == 429:
-                    # Respect the server's requested wait time if available
                     retry_after = int(e.response.headers.get("Retry-After", 0))
                     wait_time = retry_after if retry_after > 0 else self.api_call_delay
                     self.logger.info(
@@ -53,7 +49,6 @@ class BrazeClient:
                     )
                     time.sleep(wait_time)
                 else:
-                    # Re-raise other HTTP errors
                     raise
             except requests.exceptions.RequestException as e:
                 self.logger.error(f"A network error occurred: {e}")
@@ -84,14 +79,17 @@ class BrazeClient:
 
     def get_item_details(self, endpoint: str, item_id: str) -> dict[str, Any]:
         """Fetches detailed information for a single Braze item."""
-        id_param_name = endpoint.split("/")[-1] + "_id"
+        # FIX: Use the correct parameter name based on the endpoint.
+        if "email" in endpoint:
+            id_param_name = "email_template_id"
+        else:
+            id_param_name = "content_block_id"
         url = f"{self.base_url}{endpoint}?{id_param_name}={item_id}"
         self.logger.info(f"  > Fetching details for ID: {item_id}")
         response = self._make_request("GET", url, timeout=30)
         return response.json()
 
 
-# ... [rest of the file remains unchanged] ...
 class TransifexClient:
     """A client to handle interactions with the Transifex API."""
 
@@ -241,10 +239,8 @@ def perform_tmx_backup(
 
     try:
         logger.info("  > Waiting for Transifex to process the file...")
-        timeout = time.time() + 300  # 5-minute timeout
+        timeout = time.time() + 300
         file_content = None
-        # Start with a 5-second poll, backing off exponentially to a max of 30s.
-        # This is efficient and respects the server's resources.
         poll_interval = 5
         max_poll_interval = 30
 
@@ -278,7 +274,6 @@ def perform_tmx_backup(
                 )
                 time.sleep(poll_interval)
                 poll_interval = min(poll_interval * 2, max_poll_interval)
-            # The API may directly return the file if it was cached or processed instantly.
             elif (
                 "text/xml" in content_type or "application/octet-stream" in content_type
             ):
@@ -317,15 +312,12 @@ def sync_logic_main(
     config: dict,
     log_callback: Callable[[str], None],
     cancel_event: threading.Event,
-    progress_callback: Callable[[str], None],
+    progress_callback: Callable[[int, int], None],
 ) -> None:
-    """The main function that orchestrates the entire sync process."""
     logger = AppLogger(log_callback, config.get("LOG_LEVEL", "Normal"))
     logger.info("--- Starting Braze to Transifex Sync ---")
 
-    def check_for_cancel(message: str = "Working...") -> None:
-        """Helper to update progress and check for user cancellation."""
-        progress_callback(message)
+    def check_for_cancel() -> None:
         if cancel_event.is_set():
             raise CancellationError("Sync process was cancelled by the user.")
 
@@ -340,7 +332,7 @@ def sync_logic_main(
             logger,
         )
 
-        check_for_cancel("Starting sync process...")
+        check_for_cancel()
         if config.get("BACKUP_ENABLED", False):
             if not perform_tmx_backup(config, tx.session, logger, cancel_event):
                 logger.info("\n--- Sync halted due to backup failure. ---")
@@ -349,14 +341,21 @@ def sync_logic_main(
         else:
             logger.info("TMX backup is disabled. Skipping.")
 
-        check_for_cancel("\n[1] Processing Email Templates...")
-        logger.info("\n[1] Processing Email Templates...")
+        logger.info("Fetching item lists from Braze...")
         templates = braze.get_paginated_list("/templates/email/list", "templates")
+        check_for_cancel()
+        blocks = braze.get_paginated_list("/content_blocks/list", "content_blocks")
+        check_for_cancel()
+        total_items = len(templates) + len(blocks)
+        processed_items = 0
+
+        logger.info("\n[1] Processing Email Templates...")
         for template in templates:
-            check_for_cancel(f"Email: {template.get('template_name')}")
+            check_for_cancel()
             template_id = template.get("email_template_id")
             template_name = template.get("template_name")
             if not template_id or not template_name:
+                processed_items += 1
                 continue
             logger.info(f"\nProcessing '{template_name}' (ID: {template_id})...")
             details = braze.get_item_details("/templates/email/info", template_id)
@@ -367,14 +366,15 @@ def sync_logic_main(
                 if details.get(f) and str(details.get(f)).strip()
             }
             tx.upload_source_content(content, resource_slug=template_id)
+            processed_items += 1
+            progress_callback(processed_items, total_items)
 
-        check_for_cancel("\n[2] Processing Content Blocks...")
         logger.info("\n[2] Processing Content Blocks...")
-        blocks = braze.get_paginated_list("/content_blocks/list", "content_blocks")
         for block in blocks:
-            check_for_cancel(f"Block: {block.get('name')}")
+            check_for_cancel()
             block_id = block.get("content_block_id")
             if not block_id:
+                processed_items += 1
                 continue
             logger.info(f"\nProcessing '{block.get('name')}'...")
             details = braze.get_item_details("/content_blocks/info", block_id)
@@ -385,6 +385,8 @@ def sync_logic_main(
                 if details.get(f) and str(details.get(f)).strip()
             }
             tx.upload_source_content(content, resource_slug=block_id)
+            processed_items += 1
+            progress_callback(processed_items, total_items)
 
         logger.info("\n--- Sync Complete! ---")
 

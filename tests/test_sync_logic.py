@@ -19,7 +19,7 @@ def no_op_callback(message):
     pass
 
 
-def mock_progress_callback(message):
+def mock_progress_callback(current, total):
     pass
 
 
@@ -116,8 +116,8 @@ def test_upload_skips_if_no_content(mocker, mock_session, mock_config, empty_con
     templates = [{"email_template_id": "e123", "template_name": "Empty"}]
     mock_session.request.side_effect = [
         MagicMock(status_code=200, json=lambda: {"templates": templates}),
-        MagicMock(status_code=200, json=lambda: empty_content),
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
+        MagicMock(status_code=200, json=lambda: empty_content),
     ]
     mock_session.get.return_value = MagicMock(status_code=404)
     sync_logic_main(
@@ -142,8 +142,8 @@ def test_resource_name_no_update_needed(mock_session, mock_config):
     templates = [{"email_template_id": "e123", "template_name": "Matching"}]
     mock_session.request.side_effect = [
         MagicMock(status_code=200, json=lambda: {"templates": templates}),
-        MagicMock(status_code=200, json=lambda: {"subject": "Test"}),
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
+        MagicMock(status_code=200, json=lambda: {"subject": "Test"}),
     ]
     mock_session.get.return_value = MagicMock(
         status_code=200,
@@ -160,8 +160,8 @@ def test_resource_name_is_updated_when_mismatched(mock_session, mock_config):
     templates = [{"email_template_id": "e123", "template_name": "New Name"}]
     mock_session.request.side_effect = [
         MagicMock(status_code=200, json=lambda: {"templates": templates}),
-        MagicMock(status_code=200, json=lambda: {"subject": "Test"}),
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
+        MagicMock(status_code=200, json=lambda: {"subject": "Test"}),
     ]
     mock_session.get.return_value = MagicMock(
         status_code=200, json=lambda: {"data": {"attributes": {"name": "Old Name"}}}
@@ -249,8 +249,8 @@ def test_upload_source_content_success(mock_session, mock_config):
     templates = [{"email_template_id": "e123", "template_name": "Test"}]
     mock_session.request.side_effect = [
         MagicMock(status_code=200, json=lambda: {"templates": templates}),
-        MagicMock(status_code=200, json=lambda: {"subject": "Hello"}),
         MagicMock(status_code=200, json=lambda: {"content_blocks": []}),
+        MagicMock(status_code=200, json=lambda: {"subject": "Hello"}),
     ]
     mock_session.get.return_value = MagicMock(status_code=404)
     mock_session.post.side_effect = [
@@ -277,46 +277,53 @@ def test_sync_cancels_during_long_process(mock_session, mock_config, mocker):
     mocker.patch("requests.get").return_value = MagicMock(
         status_code=200, content=b"<tmx></tmx>"
     )
-    call_count = 0
 
-    def braze_request_router(method, url, **kwargs):
-        nonlocal call_count
-        if "/templates/email/list" in url:
-            return MagicMock(status_code=200, json=lambda: {"templates": templates})
-        elif "/templates/email/info" in url:
-            call_count += 1
-            if call_count > 5:
-                cancel_event.set()
-            return MagicMock(status_code=200, json=lambda: {"subject": "Test"})
-        elif "/content_blocks/list" in url:
-            return MagicMock(status_code=200, json=lambda: {"content_blocks": []})
-        else:
-            return MagicMock(status_code=404)
+    # FIX: Use a simple list of mock objects as a side_effect.
+    # This is more stable than a router function for complex call sequences.
+    braze_responses = []
+    # Call 1: List templates
+    braze_responses.append(
+        MagicMock(status_code=200, json=lambda: {"templates": templates})
+    )
+    # Call 2: List content blocks
+    braze_responses.append(
+        MagicMock(status_code=200, json=lambda: {"content_blocks": []})
+    )
+    # Calls 3-8: Get details for the first 5 templates
+    for i in range(5):
+        braze_responses.append(
+            MagicMock(status_code=200, json=lambda: {"subject": f"Test {i}"})
+        )
 
+    # After the 5th detail call, the event will be set.
+    def set_cancel_and_respond(*args, **kwargs):
+        cancel_event.set()
+        return MagicMock(status_code=200, json=lambda: {"subject": "Test 6"})
+
+    braze_responses.append(MagicMock(side_effect=set_cancel_and_respond))
+    mock_session.request.side_effect = braze_responses
+
+    # Set up the Transifex mocks
     def transifex_get_router(url, **kwargs):
-        """A smart router for Transifex GET calls."""
-        if "tmx_async_downloads" in url:
-            return MagicMock(
-                status_code=200,
-                headers={"Content-Type": "application/vnd.api+json"},
-                json=lambda: {
-                    "data": {
-                        "attributes": {"status": "completed"},
-                        "links": {"download": "http://mock.url/download"},
-                    }
-                },
-            )
+        mock_response = MagicMock()
+        mock_response.headers.get.return_value = "application/vnd.api+json"
+        if "project_translation_memory_async_downloads" in url:
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "data": {
+                    "attributes": {"status": "completed"},
+                    "links": {"download": "http://mock.url/download"},
+                }
+            }
         elif "/resources/" in url:
-            return MagicMock(status_code=404)
-        else:
-            return MagicMock(status_code=404)
+            mock_response.status_code = 404
+        return mock_response
 
-    mock_session.request.side_effect = braze_request_router
     mock_session.get.side_effect = transifex_get_router
 
     logged_messages = []
     sync_logic_main(
         mock_config, logged_messages.append, cancel_event, mock_progress_callback
     )
-    full_log = "".join(logged_messages)
-    assert "Sync process was cancelled by the user" in full_log
+
+    assert "Sync process was cancelled by the user" in "".join(logged_messages)
