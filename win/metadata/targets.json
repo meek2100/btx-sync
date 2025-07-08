@@ -1,0 +1,28 @@
+{
+ "signatures": [
+  {
+   "keyid": "c692962c54b9ddbffec30209ef488ea55b1a26b0e4727269a496d605ec2b56d1",
+   "sig": "90033871a39c0110a231f3b8478faa6026f37a2c589e94173c138b4473b27b5593c3a740a9c18a62c1a86e9237548548102766519118813a2e0014909fc3a506"
+  }
+ ],
+ "signed": {
+  "_type": "targets",
+  "expires": "2025-07-15T18:12:17Z",
+  "spec_version": "1.0.31",
+  "targets": {
+   "btx-sync-win-0.0.1a.tar.gz": {
+    "custom": {
+     "tufup": {
+      "required": false
+     },
+     "user": null
+    },
+    "hashes": {
+     "sha256": "3d22babb24f2a29d37afa07358b8fce6d9fed8932ef72df713649716b81876fc"
+    },
+    "length": 19217811
+   }
+  },
+  "version": 2
+ }
+}
