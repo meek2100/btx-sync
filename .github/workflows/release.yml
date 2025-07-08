@@ -77,10 +77,8 @@ jobs:
 
       - name: Build the application with PyInstaller
         env:
-          # Set path separator based on OS
           pathsep: "${{ runner.os == 'Windows' && ';' || ':' }}"
         run: |
-          # The version for the app's internal use is now read from the tag
           echo "__version__ = '${{ steps.set_version.outputs.version }}'" > version.py
           
           poetry run pyinstaller --noconfirm --onefile --windowed `
@@ -149,43 +147,33 @@ jobs:
           echo "$TUF_TARGETS_KEY" > keystore/targets
           echo "$TUF_TIMESTAMP_KEY" > keystore/timestamp
 
-      - name: Sign and Deploy Each Platform
+      - name: Update TUF Repository
         run: |
           set -e
-          # Get the app version from the build job's output
           APP_VERSION="${{ needs.build.outputs.app_version }}"
           PLATFORMS="win:btx-sync-win.exe mac:btx-sync-mac linux:btx-sync-linux"
 
+          # Copy existing repository metadata to a temporary workspace
+          cp -r ./repository ./repo_workspace
+          
+          # Add all platform binaries to the same repository
           for platform_info in $PLATFORMS; do
             IFS=':' read -r p_suffix artifact_name <<< "$platform_info"
-            echo "--- Processing platform: $p_suffix ---"
-
-            rm -rf temp_workspace
-            mkdir -p temp_workspace
-            cd temp_workspace
-
-            mkdir -p repository/metadata repository/targets
-            cp -r ../keystore ./
-            cp -r ../.tufup-repo-config ./
-            cp -a ../repository/metadata/. ./repository/metadata/
-            
-            # CORRECTED COMMAND: Add APP_VERSION as the first argument
-            tufup targets add "$APP_VERSION" "../artifacts/$artifact_name/$artifact_name" keystore/
-
-            tufup sign keystore/
-            
-            mkdir -p ../deploy_repo/$p_suffix
-            cp -a ./repository/. ../deploy_repo/$p_suffix/
-            
-            cd ..
-            rm -rf temp_workspace
+            echo "--- Adding target: $artifact_name ---"
+            tufup targets add "$APP_VERSION" "artifacts/$artifact_name/$artifact_name" keystore/ repo_workspace/
           done
+
+          # Sign the updated metadata once, after all targets are added
+          echo "--- Signing repository ---"
+          tufup sign snapshot keystore/ repo_workspace/
+          tufup sign timestamp keystore/ repo_workspace/
 
       - name: Deploy Update Files to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./deploy_repo
+          # Deploy the unified repository from the workspace
+          publish_dir: ./repo_workspace
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
 
