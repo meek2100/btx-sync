@@ -95,13 +95,15 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Create TUF keystore and repository directories
+        run: |
+          mkdir -p keystore repository/metadata repository/targets
       - name: Create TUF keystore from secrets
         run: |
-          mkdir -p keystore
-          echo "${{ secrets.TUF_ROOT_KEY }}" > keystore/root.json
-          echo "${{ secrets.TUF_SNAPSHOT_KEY }}" > keystore/snapshot.json
-          echo "${{ secrets.TUF_TARGETS_KEY }}" > keystore/targets.json
-          echo "${{ secrets.TUF_TIMESTAMP_KEY }}" > keystore/timestamp.json
+          echo "${{ secrets.TUF_ROOT_PRIVATE_KEY }}" > keystore/root.json
+          echo "${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}" > keystore/snapshot.json
+          echo "${{ secrets.TUF_TARGETS_PRIVATE_KEY }}" > keystore/targets.json
+          echo "${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}" > keystore/timestamp.json
       - name: Update TUF repository
         run: |
           APP_VERSION="${{ github.ref_name }}"
