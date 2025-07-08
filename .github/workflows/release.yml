@@ -107,12 +107,14 @@ jobs:
       - name: Update TUF repository
         run: |
           APP_VERSION="${{ github.ref_name }}"
+          pwd
+          ls -l
           # Add Windows
-          tufup targets add "${APP_VERSION#v}" "artifacts/btx-sync-win" keystore/ repository/
+          tufup targets add "${APP_VERSION#v}" "artifacts/btx-sync-win" keystore/
           # Add macOS
-          tufup targets add "${APP_VERSION#v}" "artifacts/btx-sync-mac" keystore/ repository/
+          tufup targets add "${APP_VERSION#v}" "artifacts/btx-sync-mac" keystore/
           # Add Linux
-          tufup targets add "${APP_VERSION#v}" "artifacts/btx-sync-linux" keystore/ repository/
+          tufup targets add "${APP_VERSION#v}" "artifacts/btx-sync-linux" keystore/
           # Sign snapshot and timestamp
           tufup sign snapshot keystore/ repository/
           tufup sign timestamp keystore/ repository/
