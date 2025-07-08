@@ -5,10 +5,10 @@ name: Build, Sign, and Release
 on:
   push:
     tags:
-      - 'v*'
-  pull_request:
-    branches:
-      - main
+      - "v*.*.*"
+
+env:
+  APP_NAME: btx-sync
 
 jobs:
   lint_and_test:
@@ -40,12 +40,19 @@ jobs:
   build:
     name: Build on ${{ matrix.os }}
     needs: lint_and_test
-    if: github.event_name == 'push' # Only run build on push to main
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.10"]
+        platform:
+          - os: windows-latest
+            suffix: win
+            asset_name: btx-sync-win.exe
+          - os: macos-latest
+            suffix: mac
+            asset_name: btx-sync-mac
+          - os: ubuntu-latest
+            suffix: linux
+            asset_name: btx-sync-linux
     outputs:
       app_version: ${{ steps.set_version.outputs.version }}
 
@@ -54,7 +61,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "${{ matrix.python-version }}"
+          python-version: "3.10"
       - name: Create Version File
         id: set_version
         run: |
@@ -69,54 +76,65 @@ jobs:
       - name: Install Dependencies
         run: poetry install
 
-      - name: Build the application
+      - name: Build the application with PyInstaller
         env:
           pathsep: "${{ runner.os == 'Windows' && ';' || ':' }}"
-          cont: "${{ runner.os == 'Windows' && '`' || '\\' }}"
         run: |
-          poetry run pyinstaller --noconfirm --onefile --windowed ${{ env.cont }}
-            --name "btx-sync" ${{ env.cont }}
-            --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" ${{ env.cont }}
-            --add-data "assets${{ env.pathsep }}assets" ${{ env.cont }}
-            --add-data "README.md${{ env.pathsep }}." ${{ env.cont }}
-            --add-data "repository/metadata/root.json${{ env.pathsep }}repository/metadata" ${{ env.cont }}
+          poetry run pyinstaller --noconfirm --onefile --windowed `
+            --name "${{ env.APP_NAME }}" `
+            --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" `
+            --add-data "assets${{ env.pathsep }}assets" `
+            --add-data "README.md${{ env.pathsep }}." `
+            --add-data "repository/metadata/root.json${{ env.pathsep }}repository/metadata" `
             app.py
+        shell: pwsh
 
-      - name: Package macOS App
-        if: runner.os == 'macOS'
-        run: (cd dist && zip -r btx-sync-macOS.zip btx-sync.app)
+      # --- This is the critical fix ---
+      - name: Rename Artifacts for tufup
+        shell: bash
+        run: |
+          p_os=${{ matrix.platform.os }}
+          p_suffix=${{ matrix.platform.suffix }}
+          # On Windows, PyInstaller adds .exe automatically
+          if [ "$p_os" == "windows-latest" ]; then
+            mv "dist/${{ env.APP_NAME }}.exe" "dist/${{ env.APP_NAME }}-${p_suffix}.exe"
+            echo "Renamed to ${{ env.APP_NAME }}-${p_suffix}.exe"
+          else
+            mv "dist/${{ env.APP_NAME }}" "dist/${{ env.APP_NAME }}-${p_suffix}"
+            echo "Renamed to ${{ env.APP_NAME }}-${p_suffix}"
+          fi
+      
+      # Upload the renamed artifact
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: btx-sync-${{ runner.os }}
-          path: |
-            ${{ runner.os == 'macOS' && 'dist/btx-sync-macOS.zip' || '' }}
-            ${{ runner.os == 'Windows' && 'dist/btx-sync.exe' || '' }}
-            ${{ runner.os == 'Linux' && 'dist/btx-sync' || '' }}
+          name: ${{ matrix.platform.asset_name }}
+          path: dist/${{ matrix.platform.asset_name }}
 
   release:
     name: Sign, Release, and Deploy
     needs: build
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Required to create a release
     steps:
       - uses: actions/checkout@v4
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - name: Install tufup and jq
-        run: |
-          pip install tufup==0.9.0
-          sudo apt-get update && sudo apt-get install -y jq
+      - name: Install tufup
+        run: pip install tufup==0.9.0
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-      - name: Process and Sign All Platforms
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Create TUF keystore from secrets
         env:
           TUF_ROOT_KEY: ${{ secrets.TUF_ROOT_PRIVATE_KEY }}
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}
@@ -124,69 +142,60 @@ jobs:
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}
         run: |
           set -e
-
           mkdir -p keystore
           echo "$TUF_ROOT_KEY" > keystore/root
           echo "$TUF_SNAPSHOT_KEY" > keystore/snapshot
           echo "$TUF_TARGETS_KEY" > keystore/targets
           echo "$TUF_TIMESTAMP_KEY" > keystore/timestamp
 
+      - name: Sign and Deploy Each Platform
+        run: |
+          set -e
           APP_VERSION="${{ needs.build.outputs.app_version }}"
-          PLATFORMS="win:Windows mac:macOS linux:Linux"
+          PLATFORMS="win:btx-sync-win.exe mac:btx-sync-mac linux:btx-sync-linux"
 
           for platform_info in $PLATFORMS; do
-            IFS=':' read -r p_suffix p_os <<< "$platform_info"
+            IFS=':' read -r p_suffix artifact_name <<< "$platform_info"
             echo "--- Processing platform: $p_suffix ---"
 
+            # Create a temporary, clean workspace for each platform
             rm -rf temp_workspace
             mkdir -p temp_workspace
             cd temp_workspace
 
+            # Copy repository files and keys
             mkdir -p repository/metadata repository/targets
             cp -r ../keystore ./
-
-            jq --arg name "btx-sync-$p_suffix" \
-            '.app_name = $name' ../.tufup-repo-config > ./.tufup-repo-config
-
+            cp -r ../.tufup-repo-config ./
             cp -a ../repository/metadata/. ./repository/metadata/
 
-            tufup targets add "$APP_VERSION" "../artifacts/btx-sync-$p_os" keystore
+            # Add the new binary as a target
+            tufup targets add "$artifact_name" "../artifacts/$artifact_name/$artifact_name" keystore/
 
-            for role in root targets snapshot timestamp; do
-              tufup sign "$role" keystore
-            done
-
+            # Sign the metadata
+            tufup sign keystore/
+            
+            # Prepare for deployment
             mkdir -p ../deploy_repo/$p_suffix
             cp -a ./repository/. ../deploy_repo/$p_suffix/
-
+            
             cd ..
+            rm -rf temp_workspace
           done
 
-      - name: Verify Repository Contents
-        run: ls -R deploy_repo
-
       - name: Deploy Update Files to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./deploy_repo
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
 
-      - name: Create GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >
-          gh release create ${{ github.ref_name }}
-          --title "Release ${{ github.ref_name }}"
-          --notes "Download the application for your OS below."
-          --prerelease=${{ contains(github.ref, 'a') || contains(github.ref, 'b') || contains(github.ref, 'rc') }}
-
-      - name: Upload Release Assets
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >
-          gh release upload ${{ github.ref_name }}
-          ./artifacts/btx-sync-Windows/btx-sync.exe#btx-sync-Windows.exe
-          ./artifacts/btx-sync-macOS/btx-sync-macOS.zip#btx-sync-macOS.zip
-          ./artifacts/btx-sync-Linux/btx-sync#btx-sync-Linux
+      - name: Create GitHub Release with Automatic Notes
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/btx-sync-win.exe/btx-sync-win.exe
+            artifacts/btx-sync-mac/btx-sync-mac
+            artifacts/btx-sync-linux/btx-sync-linux
