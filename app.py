@@ -271,15 +271,15 @@ class App(customtkinter.CTk):
         update_thread.start()
 
     def threaded_apply(self) -> None:
-        if not self.new_update_info:
+        if not self.tufup_client:
             self.log_message("[ERROR] Update client not initialized.")
             self.update_button.configure(state="normal", text="Install Now")
             return
         try:
             self.log_message(f"Downloading update {self.new_update_info.version}...")
-            self.new_update_info.download()
+            self.tufup_client.download_updates()
             self.log_message("Download complete. Preparing to install...")
-            self.new_update_info.install(restart=True)
+            self.tufup_client.install_updates(restart=True)
         except Exception as e:
             self.log_message(f"[ERROR] An unexpected error occurred during update: {e}")
             self.update_button.configure(state="normal", text="Install Now")
