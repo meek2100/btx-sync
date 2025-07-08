@@ -107,6 +107,31 @@ jobs:
       - name: Update TUF repository
         run: |
           APP_VERSION="${{ github.ref_name }}"
+          echo "review keystore path and files"
+          cd keystore
+          pwd
+          ls -al
+          cd ..
+          echo "review artifacts path and files"
+          cd artifacts
+          pwd 
+          ls -al
+          cd ..
+          echo "review repository path and files"
+          cd repository
+          pwd
+          ls -al
+          echo "review metadata path and files"
+          cd metadata
+          pwd
+          ls -al
+          cd ..
+          echo "review targets path and files"
+          cd targets
+          pwd
+          ls -al
+          echo "review root path and files"
+          cd ../..
           pwd
           ls -al
           # Add Windows
