@@ -38,9 +38,9 @@ jobs:
         run: poetry run ruff check
 
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build on ${{ matrix.platform.os }}
     needs: lint_and_test
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       matrix:
         platform:
@@ -89,13 +89,11 @@ jobs:
             app.py
         shell: pwsh
 
-      # --- This is the critical fix ---
       - name: Rename Artifacts for tufup
         shell: bash
         run: |
           p_os=${{ matrix.platform.os }}
           p_suffix=${{ matrix.platform.suffix }}
-          # On Windows, PyInstaller adds .exe automatically
           if [ "$p_os" == "windows-latest" ]; then
             mv "dist/${{ env.APP_NAME }}.exe" "dist/${{ env.APP_NAME }}-${p_suffix}.exe"
             echo "Renamed to ${{ env.APP_NAME }}-${p_suffix}.exe"
@@ -104,7 +102,6 @@ jobs:
             echo "Renamed to ${{ env.APP_NAME }}-${p_suffix}"
           fi
       
-      # Upload the renamed artifact
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -116,7 +113,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Required to create a release
+      contents: write 
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -158,24 +155,18 @@ jobs:
             IFS=':' read -r p_suffix artifact_name <<< "$platform_info"
             echo "--- Processing platform: $p_suffix ---"
 
-            # Create a temporary, clean workspace for each platform
             rm -rf temp_workspace
             mkdir -p temp_workspace
             cd temp_workspace
 
-            # Copy repository files and keys
             mkdir -p repository/metadata repository/targets
             cp -r ../keystore ./
             cp -r ../.tufup-repo-config ./
             cp -a ../repository/metadata/. ./repository/metadata/
 
-            # Add the new binary as a target
             tufup targets add "$artifact_name" "../artifacts/$artifact_name/$artifact_name" keystore/
-
-            # Sign the metadata
             tufup sign keystore/
             
-            # Prepare for deployment
             mkdir -p ../deploy_repo/$p_suffix
             cp -a ./repository/. ../deploy_repo/$p_suffix/
             
