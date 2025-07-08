@@ -261,3 +261,14 @@ def test_select_all_log_text(mock_app):
     result = App.select_all_log_text(mock_app)
     mock_app.log_box.tag_add.assert_called_once_with("sel", "1.0", "end")
     assert result == "break"
+
+
+def test_threaded_apply_exits_on_system_exit(mock_app, mocker):
+    """Verify the app process exits if tufup calls sys.exit()."""
+    mock_app.tufup_client.download_and_apply_update.side_effect = SystemExit
+
+    mock_os_exit = mocker.patch("app.os._exit")
+
+    App.threaded_apply(mock_app)
+
+    mock_os_exit.assert_called_once_with(0)

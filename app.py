@@ -7,6 +7,7 @@ import tkinter
 import sys
 import shutil
 import platform
+import os
 from tkinter import messagebox
 from pathlib import Path
 from PIL import Image
@@ -280,6 +281,8 @@ class App(customtkinter.CTk):
                 f"Downloading and applying update {self.new_update_info.version}..."
             )
             self.tufup_client.download_and_apply_update(skip_confirmation=True)
+        except SystemExit:
+            os._exit(0)
         except Exception as e:
             self.log_message(f"[ERROR] An unexpected error occurred during update: {e}")
             self.update_button.configure(state="normal", text="Install Now")
