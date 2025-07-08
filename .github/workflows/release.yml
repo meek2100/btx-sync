@@ -108,7 +108,7 @@ jobs:
         run: |
           APP_VERSION="${{ github.ref_name }}"
           pwd
-          ls -l
+          ls -al
           # Add Windows
           tufup targets add "${APP_VERSION#v}" "artifacts/btx-sync-win" keystore/
           # Add macOS
