@@ -97,18 +97,26 @@ jobs:
           path: artifacts
       - name: Create TUF keystore and repository directories
         run: |
-          mkdir -p keystore repository/metadata repository/targets
+          mkdir -p keystore private-keystore repository/metadata repository/targets
       - name: Create TUF keystore from secrets
         run: |
-          echo "${{ secrets.TUF_ROOT_PRIVATE_KEY }}" > keystore/root.json
-          echo "${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}" > keystore/snapshot.json
-          echo "${{ secrets.TUF_TARGETS_PRIVATE_KEY }}" > keystore/targets.json
-          echo "${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}" > keystore/timestamp.json
+          # Create both the public keystore and the private keystore directories
+          # Populate the PRIVATE keystore from secrets.
+          # Note the filenames are the role names (e.g., "root"), not "root.json".
+          echo "${{ secrets.TUF_ROOT_PRIVATE_KEY }}" > private-keystore/root
+          echo "${{ secrets.TUF_SNAPSHOT_PRIVATE_KEY }}" > private-keystore/snapshot
+          echo "${{ secrets.TUF_TARGETS_PRIVATE_KEY }}" > private-keystore/targets
+          echo "${{ secrets.TUF_TIMESTAMP_PRIVATE_KEY }}" > private-keystore/timestamp
       - name: Update TUF repository
         run: |
           APP_VERSION="${{ github.ref_name }}"
           echo "review keystore path and files"
           cd keystore
+          pwd
+          ls -al
+          cd ..
+          echo "review private-keystore path and files"
+          cd private-keystore
           pwd
           ls -al
           cd ..
@@ -143,6 +151,38 @@ jobs:
           # Sign snapshot and timestamp
           tufup sign snapshot keystore/ repository/
           tufup sign timestamp keystore/ repository/
+          echo "review keystore path and files"
+          cd keystore
+          pwd
+          ls -al
+          cd ..
+          echo "review private-keystore path and files"
+          cd private-keystore
+          pwd
+          ls -al
+          cd ..
+          echo "review artifacts path and files"
+          cd artifacts
+          pwd 
+          ls -al
+          cd ..
+          echo "review repository path and files"
+          cd repository
+          pwd
+          ls -al
+          echo "review metadata path and files"
+          cd metadata
+          pwd
+          ls -al
+          cd ..
+          echo "review targets path and files"
+          cd targets
+          pwd
+          ls -al
+          echo "review root path and files"
+          cd ../..
+          pwd
+          ls -al
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
