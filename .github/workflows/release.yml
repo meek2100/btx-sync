@@ -62,11 +62,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - name: Create Version File
+      - name: Create Version Variable from Tag
         id: set_version
         run: |
           VERSION=${{ github.ref_name }}
-          echo "__version__ = '${VERSION#v}'" > version.py
           echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
         shell: bash
 
@@ -78,14 +77,19 @@ jobs:
 
       - name: Build the application with PyInstaller
         env:
+          # Set path separator based on OS
           pathsep: "${{ runner.os == 'Windows' && ';' || ':' }}"
         run: |
+          # The version for the app's internal use is now read from the tag
+          echo "__version__ = '${{ steps.set_version.outputs.version }}'" > version.py
+          
           poetry run pyinstaller --noconfirm --onefile --windowed `
             --name "${{ env.APP_NAME }}" `
             --icon="${{ runner.os == 'Windows' && 'assets/icon.ico' || 'assets/icon.icns' }}" `
             --add-data "assets${{ env.pathsep }}assets" `
             --add-data "README.md${{ env.pathsep }}." `
             --add-data "repository/metadata/root.json${{ env.pathsep }}repository/metadata" `
+            --add-data "version.py${{ env.pathsep }}." `
             app.py
         shell: pwsh
 
@@ -148,6 +152,7 @@ jobs:
       - name: Sign and Deploy Each Platform
         run: |
           set -e
+          # Get the app version from the build job's output
           APP_VERSION="${{ needs.build.outputs.app_version }}"
           PLATFORMS="win:btx-sync-win.exe mac:btx-sync-mac linux:btx-sync-linux"
 
@@ -163,8 +168,10 @@ jobs:
             cp -r ../keystore ./
             cp -r ../.tufup-repo-config ./
             cp -a ../repository/metadata/. ./repository/metadata/
+            
+            # CORRECTED COMMAND: Add APP_VERSION as the first argument
+            tufup targets add "$APP_VERSION" "../artifacts/$artifact_name/$artifact_name" keystore/
 
-            tufup targets add "$artifact_name" "../artifacts/$artifact_name/$artifact_name" keystore/
             tufup sign keystore/
             
             mkdir -p ../deploy_repo/$p_suffix
