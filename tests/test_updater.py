@@ -3,59 +3,71 @@
 import pytest
 from unittest.mock import MagicMock
 
-# Import the function and config class we want to test
-from app import check_for_updates
+from app import check_for_updates, App
 
 
 @pytest.fixture
-def mock_pyupdater_client(mocker):
-    """Mocks the PyUpdater Client class."""
+def mock_tufup_client(mocker):
+    """Mocks the tufup Client class."""
     mock_client_instance = MagicMock()
     mocker.patch("app.Client", return_value=mock_client_instance)
     return mock_client_instance
 
 
-def test_update_found_and_applied(mock_pyupdater_client):
-    """Verify that if an update is found, it is downloaded and the app restarts."""
+@pytest.fixture
+def mock_app_instance(mocker):
+    """
+    Mocks the main App class to isolate the `check_for_updates` logic.
+    """
+    app_instance = MagicMock(spec=App)
+    app_instance.get_current_config.return_value = {"LOG_LEVEL": "Debug"}
+    return app_instance
+
+
+def test_update_found_and_notification_shown(mock_tufup_client, mock_app_instance):
+    """
+    Verify that if an update is found, the app's notification method is called
+    and the update info is stored correctly.
+    """
+    # ARRANGE
     mock_update = MagicMock(version="2.0.0")
-    mock_pyupdater_client.update_check.return_value = mock_update
-    mock_update.download.return_value = True
-    logged_messages = []
+    mock_tufup_client.check_for_updates.return_value = mock_update
 
-    def log_callback(message):
-        logged_messages.append(message)
+    # ACT
+    check_for_updates(mock_app_instance)
 
-    check_for_updates(log_callback)
+    # ASSERT
+    # Verify that the debug log message was sent
+    mock_app_instance.log_message.assert_any_call("[DEBUG] Update 2.0.0 found.")
 
-    full_log = "\n".join(logged_messages)
-    assert "Update 2.0.0 found, downloading..." in full_log
-    mock_update.extract_restart.assert_called_once()
+    # FIX: Assert that the method is called with NO arguments
+    mock_app_instance.show_update_notification.assert_called_once_with()
 
-
-def test_no_update_found(mock_pyupdater_client):
-    """Verify that if no update is found, the correct message is logged."""
-    mock_pyupdater_client.update_check.return_value = None
-    logged_messages = []
-
-    def log_callback(message):
-        logged_messages.append(message)
-
-    check_for_updates(log_callback)
-
-    assert "Application is up to date." in "\n".join(logged_messages)
+    # Add a new assertion to ensure the update info was stored on the instance
+    assert mock_app_instance.new_update_info == mock_update
 
 
-def test_update_download_fails(mock_pyupdater_client):
-    """Verify that if an update download fails, an error is logged."""
-    mock_update = MagicMock(version="2.0.0")
-    mock_pyupdater_client.update_check.return_value = mock_update
-    mock_update.download.return_value = False
-    logged_messages = []
+def test_no_update_found(mock_tufup_client, mock_app_instance):
+    """Verify correct behavior when no update is found."""
+    # ARRANGE
+    mock_tufup_client.check_for_updates.return_value = None
 
-    def log_callback(message):
-        logged_messages.append(message)
+    # ACT
+    check_for_updates(mock_app_instance)
 
-    check_for_updates(log_callback)
+    # ASSERT
+    mock_app_instance.log_message.assert_any_call("[DEBUG] Application is up to date.")
+    mock_app_instance.show_update_notification.assert_not_called()
 
-    assert "[ERROR] Update download failed." in "\n".join(logged_messages)
-    mock_update.extract_restart.assert_not_called()
+
+def test_check_for_updates_uses_prerelease_channel(
+    mock_tufup_client, mock_app_instance
+):
+    """
+    Verify that the check_for_updates function enables the pre-release channel.
+    """
+    # ACT
+    check_for_updates(mock_app_instance)
+
+    # ASSERT
+    mock_tufup_client.check_for_updates.assert_called_once_with(pre="a")

@@ -12,6 +12,28 @@ A cross-platform desktop application for synchronizing content from Braze to Tra
 -   **Configurable Settings:** An easy-to-use settings panel for configuring API keys, endpoints, and features like TMX backup.
 -   **Robust Logging:** Provides clear feedback on the sync process, with an optional "Debug" mode for detailed API call inspection.
 
+### Secure Automatic Updates
+
+This application includes a secure, automatic update feature to ensure you always have the latest version.
+
+-   **On Startup**: The app quietly checks for new versions in the background.
+-   **Secure**: All updates are cryptographically signed to verify they are from the developer and have not been tampered with.
+-   **Seamless**: If an update is found, it will be downloaded and installed automatically. You will be prompted to restart the application to complete the process.
+-   **Control**: You can disable this feature at any time in the Settings panel.
+
+## How It Works
+
+This tool automates the process of preparing Braze content for professional translation via Transifex.
+
+1.  **Connects to Braze:** It uses the Braze API to fetch all of your **Email Templates** and **Content Blocks**.
+2.  **Creates Transifex Resources:** For each item from Braze, it creates a corresponding "resource" in your Transifex project.
+    * The **Braze ID** (e.g., `email_template_id`) is used as the `slug` in Transifex. This creates a stable, unique identifier that won't change even if the name does.
+    * The **Braze Name** (e.g., `template_name`) is used as the display `name` in Transifex, making it easy for translators to identify the content.
+3.  **Extracts Content:** It extracts the text from translatable fields from each Braze item. The following fields are extracted:
+    * **Email Templates:** `subject`, `preheader`, `body`
+    * **Content Blocks:** `content`
+4.  **Uploads for Translation:** This extracted text is uploaded as the "source strings" to the corresponding resource in Transifex, ready for your translation team to get to work.
+
 ---
 ## For End-Users
 
@@ -40,7 +62,7 @@ A cross-platform desktop application for synchronizing content from Braze to Tra
 
 ### Development Setup
 
-To run this application from the source code, you'll need Python 3.10 or higher.
+To run this application from the source code, you'll need Python 3.10+ and [Poetry](https://python-poetry.org/docs/#installation).
 
 1.  **Clone the repository:**
     ```bash
@@ -48,36 +70,22 @@ To run this application from the source code, you'll need Python 3.10 or higher.
     cd btx-sync
     ```
 
-2.  **Create and activate a virtual environment:**
+2.  **Install dependencies using Poetry:**
+    This command will create a virtual environment and install all necessary main and development packages listed in `pyproject.toml`.
     ```bash
-    # For Windows
-    python -m venv .venv
-    .venv\Scripts\activate
-
-    # For macOS/Linux
-    python3 -m venv .venv
-    source .venv/bin/activate
+    poetry install
     ```
 
-3.  **Install core dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **(Optional) Install development dependencies for testing:**
-    ```bash
-    pip install -r tests/requirements-dev.txt
-    ```
-
-5.  **(Optional) Create Placeholder Version File:**
+3.  **(Optional) Create Placeholder Version File:**
     To prevent linter errors like `Import "version" could not be resolved` in your IDE, create a local placeholder file. This file is ignored by Git.
     ```bash
     echo '__version__ = "0.0.0-dev"' > version.py
     ```
 
-6.  **Run the application:**
+4.  **Run the application:**
+    This command runs the `app.py` script using the Python interpreter from the virtual environment managed by Poetry.
     ```bash
-    python app.py
+    poetry run python app.py
     ```
 
 ### Releasing a New Version
@@ -92,10 +100,10 @@ The application version is derived automatically from Git tags. To release a new
 
 This project uses `pytest` for unit testing. To run the test suite:
 
-1.  Make sure you have installed the development dependencies.
+1.  Make sure you have installed the development dependencies via `poetry install`.
 2.  Run pytest from the project's root directory:
     ```bash
-    pytest --cov=.
+    poetry run pytest --cov=.
     ```
 
 ### Building the Executable
@@ -104,7 +112,7 @@ You can package the application into a standalone executable using `PyInstaller`
 
 ```bash
 # For Windows
-pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.ico" --add-data "assets;assets" --add-data "README.md;." app.py
+poetry run pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.ico" --add-data "assets;assets" --add-data "README.md;." app.py
 
 # For macOS/Linux
-pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.icns" --add-data "assets:assets" --add-data "README.md:." app.py
+poetry run pyinstaller --onefile --windowed --name "btx-sync" --icon="assets/icon.icns" --add-data "assets:assets" --add-data "README.md:." app.py

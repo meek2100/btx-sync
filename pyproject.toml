@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "btx-sync"
+version = "0.1.0"
+description = "A desktop application for synchronizing content from Braze to Transifex."
+authors = ["meek2100 <meek2100@users.noreply.github.com>"]
+readme = "README.md"
+homepage = "https://github.com/meek2100/btx-sync"
+repository = "https://github.com/meek2100/btx-sync"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+customtkinter = "^5.2.2"
+requests = "^2.32.3"
+keyring = "^25.2.1"
+Pillow = "^10.4.0"
+tufup = "^0.9.0"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
+pytest-cov = "^5.0.0"
+pytest-mock = "^3.14.0"
+pyinstaller = {version = "^6.0.0", python = ">=3.10, <3.13"}
+ruff = "^0.5.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
