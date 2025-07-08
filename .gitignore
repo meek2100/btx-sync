@@ -39,3 +39,4 @@ dist/
 
 # tufup signing keys
 private-keystore/
+keystore/
