@@ -66,7 +66,7 @@ jobs:
   sign-and-release:
     name: Sign, Release, and Deploy
     runs-on: ubuntu-latest
-    needs: [build-windows, build-mac, build-linux] # Runs after all builds complete
+    needs: [build-windows, build-mac, build-linux]
     env:
       APP_NAME: btx-sync
 
@@ -91,6 +91,8 @@ jobs:
         run: ls -R artifacts
 
       - name: Create TUF keystore from secrets
+        # FIX 1: Use the actual secrets, not empty strings.
+        # Ensure these secrets are defined in your GitHub repo settings.
         run: |
           set -e
           mkdir -p keystore
@@ -101,27 +103,26 @@ jobs:
 
       - name: Update TUF repository with new targets
         id: tuf
+        # FIX 2: Operate directly on the `./repository` directory.
         run: |
           set -e
           APP_VERSION="${{ github.ref_name }}"
-
-          # UPDATED SCRIPT LOGIC
-          # This format is now "suffix:artifact_directory_name:executable_filename"
-          # This makes the script more robust if filenames differ from artifact names.
           PLATFORMS="win:btx-sync-win:btx-sync-win.exe mac:btx-sync-mac:btx-sync-mac linux:btx-sync-linux:btx-sync-linux"
 
-          cp -r ./repository ./repo_workspace
-          mkdir -p repo_workspace/targets
+          # This assumes you have an initial `repository` directory in your git repo.
+          # Create the `targets` subdir inside it, which is where `tufup` expects to work.
+          mkdir -p repository/targets
 
           for platform_info in $PLATFORMS; do
             IFS=':' read -r p_suffix dir_name file_name <<< "$platform_info"
             echo "--- Adding target: $file_name ---"
-            tufup targets add "${APP_VERSION#v}" "artifacts/$dir_name/$file_name" keystore/ repo_workspace/
+            # The last argument to `tufup` should point to the repository directory.
+            tufup targets add "${APP_VERSION#v}" "artifacts/$dir_name/$file_name" keystore/ repository/
           done
 
           echo "--- Signing repository ---"
-          tufup sign snapshot keystore/ repo_workspace/
-          tufup sign timestamp keystore/ repo_workspace/
+          tufup sign snapshot keystore/ repository/
+          tufup sign timestamp keystore/ repository/
 
       - name: Zip release assets
         run: |
@@ -129,14 +130,13 @@ jobs:
           cd artifacts/btx-sync-win && zip btx-sync-win.zip btx-sync-win.exe && cd ../..
           cd artifacts/btx-sync-mac && zip btx-sync-mac.zip btx-sync-mac && cd ../..
           cd artifacts/btx-sync-linux && zip btx-sync-linux.zip btx-sync-linux && cd ../..
-          echo "--- Zipped files ---"
-          ls -R artifacts
 
       - name: Deploy repository to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./repo_workspace
+          # Publish the `./repository` directory directly.
+          publish_dir: ./repository
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
 
@@ -144,7 +144,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          # Upload the newly created .zip files
           files: |
             artifacts/btx-sync-win/btx-sync-win.zip
             artifacts/btx-sync-mac/btx-sync-mac.zip
