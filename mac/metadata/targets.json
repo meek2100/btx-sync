@@ -2,15 +2,15 @@
  "signatures": [
   {
    "keyid": "c692962c54b9ddbffec30209ef488ea55b1a26b0e4727269a496d605ec2b56d1",
-   "sig": "14bde29253bf89653ddaf538226dcf7977e94e002e99d3e99ee8f78cffd36169d1d7af433351e8b55c100c9fafdc2dd5ffe1f6f429841a2ac40f1f9d4d9e930b"
+   "sig": "233acef9d82049956960a33bac811ae8334e70963bfd720c955395b0ac19472ce941b3183d7862b1504179158aafea94b8a0130fccaca691cf041a2a60d6ce02"
   }
  ],
  "signed": {
   "_type": "targets",
-  "expires": "2025-07-15T19:48:17Z",
+  "expires": "2025-07-15T19:51:15Z",
   "spec_version": "1.0.31",
   "targets": {
-   "btx-sync-mac-0.0.1a.tar.gz": {
+   "btx-sync-mac-0.0.2a.tar.gz": {
     "custom": {
      "tufup": {
       "required": false
@@ -18,9 +18,9 @@
      "user": null
     },
     "hashes": {
-     "sha256": "95a712f999c5870025b4d075da796a35c148b7302139569db2331478e49da58b"
+     "sha256": "f9de5a3e949f232945cd91c47ea9991b5fbde2bde7589817f5533134395ea01a"
     },
-    "length": 18671454
+    "length": 18672345
    }
   },
   "version": 2
