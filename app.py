@@ -47,8 +47,6 @@ UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 def check_for_updates(app_instance: "App") -> None:
     """
     Initializes the tufup client and checks for application updates.
-    Includes logic to automatically clear the cache and retry if expired
-    metadata is found.
     """
     logger = AppLogger(
         app_instance.log_message,
@@ -60,7 +58,6 @@ def check_for_updates(app_instance: "App") -> None:
     platform_app_name = f"{APP_NAME}-{platform_suffix}"
     logger.debug(f"Platform: {platform_system}, App Name: {platform_app_name}")
 
-    # Define and create local directories for update assets
     app_data_dir = Path.home() / f".{APP_NAME}"
     app_data_dir.mkdir(exist_ok=True)
     metadata_dir = app_data_dir / "metadata"
@@ -68,7 +65,6 @@ def check_for_updates(app_instance: "App") -> None:
     metadata_dir.mkdir(exist_ok=True)
     target_dir.mkdir(exist_ok=True)
 
-    # On first run, copy the bundled root.json to the local cache
     local_root_path = metadata_dir / "root.json"
     if not local_root_path.exists():
         try:
@@ -79,48 +75,27 @@ def check_for_updates(app_instance: "App") -> None:
             logger.error(f"Failed to initialize update metadata: {repr(e)}")
             return
 
-    # Initialize the tufup client
     try:
-        platform_update_url = f"{UPDATE_URL}{platform_suffix}/"
         client = Client(
             app_name=platform_app_name,
             app_install_dir=Path(sys.executable).parent,
             current_version=APP_VERSION,
             metadata_dir=metadata_dir,
             target_dir=target_dir,
-            metadata_base_url=f"{platform_update_url}metadata/",
-            target_base_url=f"{platform_update_url}targets/",
+            metadata_base_url=f"{UPDATE_URL}metadata/",
+            target_base_url=f"{UPDATE_URL}targets/",
         )
         logger.debug(f"tufup.Client(current_version='{APP_VERSION}')")
     except Exception as e:
         logger.error(f"Failed to initialize update client: {repr(e)}")
         return
 
-    # Check for updates, with cache-clearing retry logic
     new_update = None
     try:
+        # The 'pre' argument allows for alpha, beta, and release candidate versions
         new_update = client.check_for_updates(pre="a")
     except Exception as e:
-        # If metadata is expired, clear cache and retry once
-        if "ExpiredMetadataError" in repr(e):
-            logger.error(f"Expired metadata detected: {e}")
-            logger.info("Clearing cache and retrying update check...")
-
-            # Delete all .json files except the trusted root.json
-            for f_path in metadata_dir.glob("*.json"):
-                if f_path.name != "root.json":
-                    try:
-                        f_path.unlink()
-                    except OSError as unlink_error:
-                        logger.error(f"Failed to remove {f_path.name}: {unlink_error}")
-
-            # Retry the check
-            try:
-                new_update = client.check_for_updates(pre="a")
-            except Exception as retry_e:
-                logger.error(f"Update check failed on retry: {repr(retry_e)}")
-        else:
-            logger.error(f"Update check failed: {repr(e)}")
+        logger.error(f"Update check failed: {repr(e)}")
 
     if new_update:
         logger.debug(f"Update {new_update.version} found.")
