@@ -276,10 +276,10 @@ class App(customtkinter.CTk):
             self.update_button.configure(state="normal", text="Install Now")
             return
         try:
-            self.log_message(f"Downloading update {self.new_update_info.version}...")
-            self.tufup_client.download()
-            self.log_message("Download complete. Preparing to install...")
-            self.tufup_client.install(restart=True)
+            self.log_message(
+                f"Downloading and applying update {self.new_update_info.version}..."
+            )
+            self.tufup_client.download_and_apply_update()
         except Exception as e:
             self.log_message(f"[ERROR] An unexpected error occurred during update: {e}")
             self.update_button.configure(state="normal", text="Install Now")

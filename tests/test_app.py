@@ -217,24 +217,23 @@ def test_force_update_check_starts_thread(mock_app, mocker):
 
 
 def test_threaded_apply_success(mock_app):
-    """Verify the update process calls tufup download and install."""
+    """Verify the update process calls the correct tufup method."""
     App.threaded_apply(mock_app)
-    mock_app.tufup_client.download.assert_called_once()
-    mock_app.tufup_client.install.assert_called_once_with(restart=True)
-    mock_app.log_message.assert_any_call("Download complete. Preparing to install...")
+    mock_app.tufup_client.download_and_apply_update.assert_called_once()
 
 
 def test_threaded_apply_failure(mock_app):
-    """Verify UI is reset correctly if the update download fails."""
-    error_message = "Download failed"
-    mock_app.tufup_client.download.side_effect = Exception(error_message)
+    """Verify UI is reset correctly if the update process fails."""
+    error_message = "Update failed"
+    mock_app.tufup_client.download_and_apply_update.side_effect = Exception(
+        error_message
+    )
     App.threaded_apply(mock_app)
     log_call = f"[ERROR] An unexpected error occurred during update: {error_message}"
     mock_app.log_message.assert_any_call(log_call)
     mock_app.update_button.configure.assert_called_with(
         state="normal", text="Install Now"
     )
-    mock_app.tufup_client.install.assert_not_called()
 
 
 def test_copy_log_text(mock_app):
