@@ -219,7 +219,9 @@ def test_force_update_check_starts_thread(mock_app, mocker):
 def test_threaded_apply_success(mock_app):
     """Verify the update process calls the correct tufup method."""
     App.threaded_apply(mock_app)
-    mock_app.tufup_client.download_and_apply_update.assert_called_once()
+    mock_app.tufup_client.download_and_apply_update.assert_called_once_with(
+        skip_confirmation=True
+    )
 
 
 def test_threaded_apply_failure(mock_app):
