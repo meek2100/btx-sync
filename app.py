@@ -41,6 +41,16 @@ try:
 except ImportError:
     APP_VERSION = "0.0.0-dev"
 
+# Define the custom windows batch template with a restart command
+WIN_RESTART_BATCH_TEMPLATE = """@echo off
+echo Moving app files...
+robocopy "{src_dir}" "{dst_dir}" {robocopy_options}
+echo Relaunching application...
+start "" "{dst_dir}\\btx-sync.exe"
+echo Done.
+{delete_self}
+"""
+
 APP_NAME = "btx-sync"
 UPDATE_URL = "https://meek2100.github.io/btx-sync/"
 
@@ -280,19 +290,24 @@ class App(customtkinter.CTk):
             self.log_message(
                 f"Downloading and applying update {self.new_update_info.version}..."
             )
-            self.tufup_client.download_and_apply_update(skip_confirmation=True)
+
+            # Create a dictionary for keyword arguments
+            update_kwargs = {"skip_confirmation": True}
+
+            # If on Windows, add our custom batch template to the arguments
+            if platform.system() == "Windows":
+                update_kwargs["batch_template"] = WIN_RESTART_BATCH_TEMPLATE
+
+            # Call the update method with our arguments
+            self.tufup_client.download_and_apply_update(**update_kwargs)
+
         except SystemExit:
+            # This is expected. tufup calls sys.exit(), which we catch.
+            # Now, we must exit the entire process.
             os._exit(0)
         except Exception as e:
             self.log_message(f"[ERROR] An unexpected error occurred during update: {e}")
             self.update_button.configure(state="normal", text="Install Now")
-
-    def force_update_check(self) -> None:
-        self.log_message("\n--- Manual update check initiated ---")
-        update_thread = threading.Thread(
-            target=check_for_updates, args=(self,), daemon=True
-        )
-        update_thread.start()
 
     def get_current_config(self) -> dict:
         config = {}
