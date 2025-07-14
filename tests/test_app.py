@@ -4,7 +4,7 @@ import pytest
 import tkinter
 from unittest.mock import MagicMock
 
-from app import App, cleanup_old_updates
+from app import App, cleanup_old_updates, WIN_RESTART_BATCH_TEMPLATE
 
 
 @pytest.fixture
@@ -206,6 +206,7 @@ def test_force_update_check_starts_thread(mock_app, mocker):
     """Verify that force_update_check starts the update check in a thread."""
     mock_thread_class = mocker.patch("threading.Thread")
     mock_check_for_updates = mocker.patch("app.check_for_updates")
+    # Corrected: Call as a static method, passing the instance
     App.force_update_check(mock_app)
     mock_app.log_message.assert_called_once_with(
         "\n--- Manual update check initiated ---"
@@ -216,17 +217,29 @@ def test_force_update_check_starts_thread(mock_app, mocker):
     mock_thread_class.return_value.start.assert_called_once()
 
 
-def test_threaded_apply_success(mock_app):
+@pytest.mark.parametrize(
+    "platform_system, expected_kwargs",
+    [
+        (
+            "Windows",
+            {"skip_confirmation": True, "batch_template": WIN_RESTART_BATCH_TEMPLATE},
+        ),
+        ("Darwin", {"skip_confirmation": True}),
+        ("Linux", {"skip_confirmation": True}),
+    ],
+)
+def test_threaded_apply_success(mock_app, mocker, platform_system, expected_kwargs):
     """Verify the update process calls the correct tufup method."""
+    mocker.patch("platform.system", return_value=platform_system)
     App.threaded_apply(mock_app)
     mock_app.tufup_client.download_and_apply_update.assert_called_once_with(
-        skip_confirmation=True
+        **expected_kwargs
     )
 
 
 def test_threaded_apply_failure(mock_app):
-    """Verify UI is reset correctly if the update process fails."""
-    error_message = "Update failed"
+    """Verify UI is reset correctly if the update download fails."""
+    error_message = "Download failed"
     mock_app.tufup_client.download_and_apply_update.side_effect = Exception(
         error_message
     )
@@ -236,6 +249,14 @@ def test_threaded_apply_failure(mock_app):
     mock_app.update_button.configure.assert_called_with(
         state="normal", text="Install Now"
     )
+
+
+def test_threaded_apply_exits_on_system_exit(mock_app, mocker):
+    """Verify the app process exits if tufup calls sys.exit()."""
+    mock_app.tufup_client.download_and_apply_update.side_effect = SystemExit
+    mock_os_exit = mocker.patch("app.os._exit")
+    App.threaded_apply(mock_app)
+    mock_os_exit.assert_called_once_with(0)
 
 
 def test_copy_log_text(mock_app):
@@ -261,14 +282,3 @@ def test_select_all_log_text(mock_app):
     result = App.select_all_log_text(mock_app)
     mock_app.log_box.tag_add.assert_called_once_with("sel", "1.0", "end")
     assert result == "break"
-
-
-def test_threaded_apply_exits_on_system_exit(mock_app, mocker):
-    """Verify the app process exits if tufup calls sys.exit()."""
-    mock_app.tufup_client.download_and_apply_update.side_effect = SystemExit
-
-    mock_os_exit = mocker.patch("app.os._exit")
-
-    App.threaded_apply(mock_app)
-
-    mock_os_exit.assert_called_once_with(0)
