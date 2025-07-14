@@ -206,8 +206,12 @@ def test_force_update_check_starts_thread(mock_app, mocker):
     """Verify that force_update_check starts the update check in a thread."""
     mock_thread_class = mocker.patch("threading.Thread")
     mock_check_for_updates = mocker.patch("app.check_for_updates")
-    # Corrected: Call as a static method, passing the instance
+
+    # Corrected approach: Call the method on the App class, passing the mocked instance.
+    # This avoids the complexities of the mocked GUI object's state.
     App.force_update_check(mock_app)
+
+    # Assert that the method's logic was executed as expected.
     mock_app.log_message.assert_called_once_with(
         "\n--- Manual update check initiated ---"
     )
