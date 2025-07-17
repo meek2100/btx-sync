@@ -233,6 +233,10 @@ class App(customtkinter.CTk):
         self.more_menu.add_command(label="Help", command=self.open_help_file)
         self.more_menu.add_separator()
         self.more_menu.add_command(label="About", command=self.open_about_window)
+        self.more_menu.add_separator()
+        self.more_menu.add_command(
+            label="Check for updates", command=self.force_update_check
+        )
         self.right_click_menu = tkinter.Menu(
             self.log_box,
             tearoff=0,
@@ -468,6 +472,14 @@ class App(customtkinter.CTk):
             self.update_readiness_status()
         else:
             self.settings_window.focus()
+
+    def force_update_check(self):
+        """Forces an update check to be performed."""
+        self.log_message("\n--- Manual update check initiated ---")
+        update_thread = threading.Thread(
+            target=check_for_updates, args=(self,), daemon=True
+        )
+        update_thread.start()
 
 
 if __name__ == "__main__":
